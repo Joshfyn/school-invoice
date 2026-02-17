@@ -39,7 +39,7 @@ func (svc *EducationService) setupRoutes(router *gin.Engine, h *handlers.Handler
 
 		// Protected routes (auth required)
 		protected := api.Group("")
-		protected.Use(middleware.Auth(svc.Config.JWTSecret))
+		protected.Use(middleware.Auth(svc.Config.JWTSecret, svc.Redis))
 		{
 			svc.setupSchoolRoutes(protected, h)
 			svc.setupRoleRoutes(protected, h)
@@ -80,10 +80,10 @@ func (svc *EducationService) setupPublicRoutes(api *gin.RouterGroup, h *handlers
 
 // setupSchoolRoutes configures school profile routes
 func (svc *EducationService) setupSchoolRoutes(protected *gin.RouterGroup, h *handlers.Handler) {
-	//schools := protected.Group("/schools")
+	schools := protected.Group("/schools")
 	{
-		//schools.GET("/profile", h.GetSchoolProfile)
-		//schools.PUT("/profile", h.UpdateSchoolProfile)
+		schools.GET("/profile", h.GetSchoolProfile)
+		schools.PUT("/profile", middleware.ValidateSchoolProfileUpdate, h.UpdateSchoolProfile)
 	}
 }
 
