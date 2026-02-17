@@ -218,8 +218,8 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, models.RegisterResponse{
-		School: models.SchoolResponse{
+	c.JSON(http.StatusCreated, dto.RegisterResponse{
+		School: dto.SchoolResponse{
 			ID:        schoolID,
 			Name:      regReq.SchoolName,
 			Subdomain: regReq.Subdomain,
@@ -228,7 +228,7 @@ func (h *Handler) Register(c *gin.Context) {
 			Address:   regReq.SchoolAddress,
 			IsActive:  true,
 		},
-		User: models.UserResponse{
+		User: dto.UserResponse{
 			ID:        userID,
 			SchoolID:  schoolID,
 			RoleID:    roleID,
@@ -244,7 +244,7 @@ func (h *Handler) Register(c *gin.Context) {
 
 // Login handles user login
 func (h *Handler) Login(c *gin.Context) {
-	var req models.LoginRequest
+	var req dto.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		h.logger.
 			WithError(err).
@@ -321,16 +321,38 @@ func (h *Handler) Login(c *gin.Context) {
 		})
 		return
 	}
+	// set token to redis
+	err = h.redis.Set(context.Background(), token, user.ID.String(), ResetTokenExpiry)
+	if err != nil {
+		h.logger.
+			WithError(err).
+			WithField("token", token).
+			Error("Failed to set token to redis")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Error:   "database_error",
+			Message: "Failed to set token to redis",
+		})
+		return
+	}
 
-	c.JSON(http.StatusOK, models.LoginResponse{
-		User:  user.ToResponse(),
+	c.JSON(http.StatusOK, dto.LoginResponse{
+		User: dto.UserResponse{
+			ID:        user.ID,
+			SchoolID:  user.SchoolID,
+			RoleID:    user.RoleID,
+			Email:     user.Email,
+			FirstName: user.FirstName,
+			LastName:  user.LastName,
+			Phone:     user.Phone,
+			IsActive:  user.IsActive,
+		},
 		Token: token,
 	})
 }
 
 // ForgotPassword handles password reset request
 func (h *Handler) ForgotPassword(c *gin.Context) {
-	var req models.ForgotPasswordRequest
+	var req dto.ForgotPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		h.logger.
 			WithError(err).

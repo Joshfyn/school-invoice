@@ -8,9 +8,9 @@ import (
 	"github.com/school-invoice/backend/internal/logger"
 )
 
-func ValidateResetToken(c *gin.Context) {
+func ValidateSchoolProfileUpdate(c *gin.Context) {
 	logger := c.MustGet(ContextKeyLogger).(*logger.Logger)
-	var req dto.ResetPasswordRequest
+	var req dto.UpdateSchoolRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		logger.
 			WithError(err).
@@ -19,14 +19,6 @@ func ValidateResetToken(c *gin.Context) {
 		return
 	}
 
-	token := c.Query("token")
-	if token == "" {
-		logger.Error("Unauthorized: Token is required")
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-	req.Token = token
-
-	c.Set(ReqBodyResetPwd, req)
+	c.Set(ReqBodySchoolProfileUpdate, req)
 	c.Next()
 }

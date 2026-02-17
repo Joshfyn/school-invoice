@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/school-invoice/backend/internal/database"
 	"github.com/school-invoice/backend/internal/models"
 )
 
@@ -21,7 +23,7 @@ const (
 )
 
 // Auth middleware validates JWT token and sets user context
-func Auth(jwtSecret string) gin.HandlerFunc {
+func Auth(jwtSecret string, redis *database.Redis) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -45,6 +47,25 @@ func Auth(jwtSecret string) gin.HandlerFunc {
 		}
 
 		tokenString := parts[1]
+		// check if token is in redis
+		tokenUserID, err := redis.Get(context.Background(), tokenString)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse{
+				Error:   "unauthorized",
+				Message: "Invalid or expired token",
+			})
+			c.Abort()
+			return
+		}
+
+		if tokenUserID == "" {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse{
+				Error:   "unauthorized",
+				Message: "Invalid or expired token",
+			})
+			c.Abort()
+			return
+		}
 
 		// Parse and validate token
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
@@ -76,6 +97,15 @@ func Auth(jwtSecret string) gin.HandlerFunc {
 
 		// Set user info in context
 		userID, _ := uuid.Parse(claims["user_id"].(string))
+		if tokenUserID != userID.String() {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse{
+				Error:   "unauthorized",
+				Message: "Invalid token",
+			})
+			c.Abort()
+			return
+		}
+
 		schoolID, _ := uuid.Parse(claims["school_id"].(string))
 		roleID, _ := uuid.Parse(claims["role_id"].(string))
 
