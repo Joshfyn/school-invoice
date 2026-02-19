@@ -4,30 +4,116 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/school-invoice/backend/internal/dto"
+	"github.com/school-invoice/backend/internal/middleware"
 	"github.com/school-invoice/backend/internal/models"
 )
 
-// Stub implementations for handlers - to be implemented
-
-// Role handlers
+// Stub implementations for handlers
 func (h *Handler) ListRoles(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "List roles - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	roles, err := models.ListRoles(h.dbx, schoolID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get roles")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get roles"})
+		return
+	}
+
+	c.JSON(http.StatusOK, roles)
 }
 
 func (h *Handler) CreateRole(c *gin.Context) {
-	c.JSON(http.StatusCreated, models.SuccessResponse{Message: "Create role - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	req := c.MustGet(middleware.ReqBodyCreateRole).(dto.CreateRoleRequest)
+
+	role := models.Role{
+		BaseModel: models.NewBaseModel(),
+		SchoolID:  schoolID,
+		Name:      req.Name,
+		Description: func() string {
+			if req.Description != "" {
+				return req.Description
+			}
+			return ""
+		}(),
+		Permissions:  models.Permissions(req.Permissions),
+		IsSuperAdmin: false,
+	}
+	if err := role.Create(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to create role")
+		respondWithError(c, http.StatusInternalServerError, "server_error", "failed to create role")
+		return
+	}
+
+	c.JSON(http.StatusCreated, role)
 }
 
 func (h *Handler) GetRole(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Get role - to be implemented"})
+	// TODO: If the role is super admin, return the role only if the schoolID is the same as the role's schoolID and own roleID
+	// TODO: If the role is not super admin, return only the requestor's role
+	schoolID := middleware.GetSchoolID(c)
+	roleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		respondWithError(c, http.StatusBadRequest, "invalid_role_id", "invalid role id")
+		return
+	}
+
+	role, err := models.GetRole(h.dbx, schoolID, roleID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get role")
+		respondWithError(c, http.StatusNotFound, "not_found", "role not found")
+		return
+	}
+
+	c.JSON(http.StatusOK, role)
 }
 
 func (h *Handler) UpdateRole(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Update role - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	req := c.MustGet(middleware.ReqBodyUpdateRole).(dto.UpdateRoleRequest)
+
+	role, err := models.GetRole(h.dbx, schoolID, req.RoleID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get role for update")
+		respondWithError(c, http.StatusNotFound, "not_found", "role not found")
+		return
+	}
+
+	if req.Name != nil {
+		role.Name = *req.Name
+	}
+	if req.Description != nil {
+		role.Description = *req.Description
+	}
+	if req.Permissions != nil {
+		role.Permissions = *req.Permissions
+	}
+
+	if err := role.Update(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to update role")
+		respondWithError(c, http.StatusInternalServerError, "server_error", "failed to update role")
+		return
+	}
+
+	c.JSON(http.StatusOK, role)
 }
 
 func (h *Handler) DeleteRole(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Delete role - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	roleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		respondWithError(c, http.StatusBadRequest, "invalid_role_id", "invalid role id")
+		return
+	}
+
+	if err := models.DeleteRole(h.dbx, schoolID, roleID); err != nil {
+		h.logger.WithError(err).Error("Failed to delete role")
+		respondWithError(c, http.StatusInternalServerError, "server_error", "failed to delete role")
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse{Message: "role deleted"})
 }
 
 // User handlers

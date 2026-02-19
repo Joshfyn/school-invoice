@@ -8,9 +8,9 @@ import (
 
 // BaseModel contains common fields for all models
 type BaseModel struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        uuid.UUID `json:"id" db:"id"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // NewBaseModel creates a new BaseModel with generated ID and timestamps
