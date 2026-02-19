@@ -92,10 +92,10 @@ func (svc *EducationService) setupRoleRoutes(protected *gin.RouterGroup, h *hand
 	roles := protected.Group("/roles")
 	{
 		roles.GET("", h.ListRoles)
-		roles.POST("", middleware.RequirePermission("roles", "manage"), h.CreateRole)
+		roles.POST("", middleware.ValidateCreateRoleRequest, middleware.RequirePermission("roles", "manage"), h.CreateRole)
 		roles.GET("/:id", h.GetRole)
-		roles.PUT("/:id", middleware.RequirePermission("roles", "manage"), h.UpdateRole)
-		roles.DELETE("/:id", middleware.RequirePermission("roles", "manage"), h.DeleteRole)
+		roles.PUT("/:id", middleware.ValidateUpdateRoleRequest, middleware.RequirePermission("roles", "manage"), h.UpdateRole)
+		roles.DELETE("/:id", middleware.ValidateDeleteRoleRequest, middleware.RequirePermission("roles", "manage"), h.DeleteRole)
 	}
 }
 
