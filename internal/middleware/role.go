@@ -74,3 +74,28 @@ func ValidateUpdateRoleRequest(c *gin.Context) {
 	c.Set(ReqBodyUpdateRole, req)
 	c.Next()
 }
+
+func ValidateDeleteRoleRequest(c *gin.Context) {
+	logger := c.MustGet(ContextKeyLogger).(*logger.Logger)
+	roleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		logger.
+			WithError(err).
+			Error("Failed to parse role ID")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if roleID == uuid.Nil {
+		logger.
+			Error("Role ID is required")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Role ID is required"})
+		return
+	}
+
+	var req = dto.DeleteRoleRequest{
+		RoleID: roleID,
+	}
+	c.Set(ReqBodyDeleteRole, req)
+	c.Next()
+}

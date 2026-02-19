@@ -249,7 +249,7 @@ func ListRoles(dbx DBTX, schoolID uuid.UUID) ([]Role, error) {
 	roles := []Role{}
 	err := dbx.SelectContext(ctx, &roles, `
 		SELECT id, school_id, name, description, permissions, is_super_admin, created_at, updated_at
-		FROM roles WHERE school_id = $1
+		FROM roles WHERE school_id = $1 AND deleted_at IS NULL
 	`, schoolID)
 	return roles, err
 }
@@ -261,7 +261,7 @@ func GetRole(dbx DBTX, schoolID uuid.UUID, roleID uuid.UUID) (*Role, error) {
 	role := Role{}
 	err := dbx.GetContext(ctx, &role, `
 		SELECT id, school_id, name, description, permissions, is_super_admin, created_at, updated_at
-		FROM roles WHERE school_id = $1 AND id = $2
+		FROM roles WHERE school_id = $1 AND id = $2 AND deleted_at IS NULL
 	`, schoolID, roleID)
 	return &role, err
 }
@@ -288,8 +288,9 @@ func DeleteRole(dbx DBTX, schoolID uuid.UUID, roleID uuid.UUID) error {
 	defer cancel()
 
 	_, err := dbx.ExecContext(ctx, `
-		DELETE FROM roles
-		WHERE school_id = $1 AND id = $2
+		UPDATE roles
+		SET deleted_at = NOW()
+		WHERE school_id = $1 AND id = $2 AND deleted_at IS NULL
 	`, schoolID, roleID)
 	return err
 }

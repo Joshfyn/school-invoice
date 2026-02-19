@@ -9,4 +9,5 @@ const (
 	ReqBodySchoolProfileUpdate = "school_profile_update"
 	ReqBodyCreateRole          = "create_role"
 	ReqBodyUpdateRole          = "update_role"
+	ReqBodyDeleteRole          = "delete_role"
 )

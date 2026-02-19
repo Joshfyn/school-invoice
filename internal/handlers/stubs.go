@@ -101,13 +101,9 @@ func (h *Handler) UpdateRole(c *gin.Context) {
 
 func (h *Handler) DeleteRole(c *gin.Context) {
 	schoolID := middleware.GetSchoolID(c)
-	roleID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		respondWithError(c, http.StatusBadRequest, "invalid_role_id", "invalid role id")
-		return
-	}
+	req := c.MustGet(middleware.ReqBodyDeleteRole).(dto.DeleteRoleRequest)
 
-	if err := models.DeleteRole(h.dbx, schoolID, roleID); err != nil {
+	if err := models.DeleteRole(h.dbx, schoolID, req.RoleID); err != nil {
 		h.logger.WithError(err).Error("Failed to delete role")
 		respondWithError(c, http.StatusInternalServerError, "server_error", "failed to delete role")
 		return

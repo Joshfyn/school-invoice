@@ -19,6 +19,11 @@ type UpdateRoleRequest struct {
 	Permissions *models.Permissions `json:"permissions,omitempty"`
 }
 
+// DeleteRoleRequest is the request body for deleting a role
+type DeleteRoleRequest struct {
+	RoleID uuid.UUID `json:"-"`
+}
+
 // RoleResponse is the response for role data
 type RoleResponse struct {
 	ID           uuid.UUID          `json:"id"`
