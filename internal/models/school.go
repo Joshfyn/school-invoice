@@ -5,13 +5,13 @@ import "time"
 // School represents a school (tenant) in the system
 type School struct {
 	BaseModel
-	Name      string  `json:"name"`
-	Subdomain string  `json:"subdomain"`
-	Phone     string  `json:"phone"`
-	Email     string  `json:"email"`
-	Address   string  `json:"address"`
-	LogoURL   *string `json:"logo_url,omitempty"`
-	IsActive  bool    `json:"is_active"`
+	Name      string  `json:"name" db:"name"`
+	Subdomain string  `json:"subdomain" db:"subdomain"`
+	Phone     string  `json:"phone" db:"phone"`
+	Email     string  `json:"email" db:"email"`
+	Address   string  `json:"address" db:"address"`
+	LogoURL   *string `json:"logo_url,omitempty" db:"logo_url"`
+	IsActive  bool    `json:"is_active" db:"is_active"`
 }
 
 func (s *School) Create(dbx DBTX) error {

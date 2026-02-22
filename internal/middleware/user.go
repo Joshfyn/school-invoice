@@ -30,3 +30,18 @@ func ValidateResetToken(c *gin.Context) {
 	c.Set(ReqBodyResetPwd, req)
 	c.Next()
 }
+
+func ValidateCreateUserRequest(c *gin.Context) {
+	logger := c.MustGet(ContextKeyLogger).(*logger.Logger)
+	var req dto.CreateUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.
+			WithError(err).
+			Error("Failed to bind JSON")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Set(ReqBodyCreateUser, req)
+	c.Next()
+}

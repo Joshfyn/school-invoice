@@ -104,7 +104,7 @@ func (svc *EducationService) setupUserRoutes(protected *gin.RouterGroup, h *hand
 	users := protected.Group("/users")
 	{
 		users.GET("", middleware.RequirePermission("users", "read"), h.ListUsers)
-		users.POST("", middleware.RequirePermission("users", "create"), h.CreateUser)
+		users.POST("", middleware.ValidateCreateUserRequest, middleware.RequirePermission("users", "create"), h.CreateUser)
 		users.GET("/:id", middleware.RequirePermission("users", "read"), h.GetUser)
 		users.PUT("/:id", middleware.RequirePermission("users", "update"), h.UpdateUser)
 		users.PUT("/:id/role", middleware.RequirePermission("roles", "manage"), h.UpdateUserRole)

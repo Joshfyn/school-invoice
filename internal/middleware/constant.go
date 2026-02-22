@@ -6,6 +6,7 @@ const (
 
 const (
 	ReqBodyResetPwd            = "new_password"
+	ReqBodyCreateUser          = "create_user"
 	ReqBodySchoolProfileUpdate = "school_profile_update"
 	ReqBodyCreateRole          = "create_role"
 	ReqBodyUpdateRole          = "update_role"

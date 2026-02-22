@@ -8,6 +8,7 @@ import (
 	"github.com/school-invoice/backend/internal/dto"
 	"github.com/school-invoice/backend/internal/middleware"
 	"github.com/school-invoice/backend/internal/models"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Stub implementations for handlers
@@ -114,11 +115,75 @@ func (h *Handler) DeleteRole(c *gin.Context) {
 
 // User handlers
 func (h *Handler) ListUsers(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "List users - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	users, err := models.GetUsers(h.dbx, schoolID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get users")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get users"})
+		return
+	}
+	c.JSON(http.StatusOK, users)
 }
 
 func (h *Handler) CreateUser(c *gin.Context) {
-	c.JSON(http.StatusCreated, models.SuccessResponse{Message: "Create user - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyCreateUser).(dto.CreateUserRequest)
+	schoolID := middleware.GetSchoolID(c)
+
+	// verify if the email already exists
+	exists, err := (&models.User{Email: req.Email}).EmailExists(h.dbx)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to check email existence")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to check email existence"})
+		return
+	}
+	if exists {
+		c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Email already exists"})
+		return
+	}
+
+	// verify school id is the same as the school id in the role
+	role, err := models.GetRole(h.dbx, schoolID, req.RoleID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get role")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get role"})
+		return
+	}
+	if role.SchoolID != schoolID {
+		h.logger.
+			WithError(err).
+			WithField("school_id", schoolID).
+			WithField("role_id", req.RoleID).
+			Error("School ID does not match role school ID")
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "School ID does not match role school ID"})
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to generate password hash")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to generate password hash"})
+		return
+	}
+
+	user := models.User{
+		BaseModel:    models.NewBaseModel(),
+		SchoolID:     schoolID,
+		RoleID:       req.RoleID,
+		Email:        req.Email,
+		PasswordHash: string(hashedPassword),
+		FirstName:    req.FirstName,
+		LastName:     req.LastName,
+		Phone:        req.Phone,
+		IsActive:     true,
+	}
+
+	if err := user.Create(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to create user")
+		respondWithError(c, http.StatusInternalServerError, "server_error", "failed to create user")
+		return
+	}
+
+	c.JSON(http.StatusCreated, user)
 }
 
 func (h *Handler) GetUser(c *gin.Context) {
