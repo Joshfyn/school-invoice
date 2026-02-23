@@ -104,13 +104,13 @@ func (svc *EducationService) setupUserRoutes(protected *gin.RouterGroup, h *hand
 	users := protected.Group("/users")
 	{
 		users.GET("", middleware.RequirePermission("users", "read"), h.ListUsers)
-		users.POST("", middleware.RequirePermission("users", "create"), h.CreateUser)
-		users.GET("/:id", middleware.RequirePermission("users", "read"), h.GetUser)
-		users.PUT("/:id", middleware.RequirePermission("users", "update"), h.UpdateUser)
-		users.PUT("/:id/role", middleware.RequirePermission("roles", "manage"), h.UpdateUserRole)
-		users.PUT("/:id/status", middleware.RequirePermission("users", "update"), h.UpdateUserStatus)
-		users.GET("/:id/class-access", middleware.RequirePermission("users", "read"), h.GetUserClassAccess)
-		users.PUT("/:id/class-access", middleware.RequirePermission("classes", "manage"), h.SetUserClassAccess)
+		users.POST("", middleware.RequirePermission("users", "create"), middleware.ValidateCreateUserRequest, h.CreateUser)
+		users.GET("/:id", middleware.ValidateGetSingleUserRequest, middleware.RequirePermission("users", "read"), h.GetSingleUser)
+		users.PUT("/:id", middleware.ValidateUpdateUserRequest, middleware.RequirePermission("users", "update"), h.UpdateUser)
+		users.PUT("/:id/role", middleware.ValidateUpdateUserRoleRequest, middleware.RequirePermission("roles", "manage"), h.UpdateUserRole)
+		users.PUT("/:id/status", middleware.ValidateUpdateUserStatusRequest, middleware.RequirePermission("users", "update"), h.UpdateUserStatus)
+		//users.GET("/:id/class-access", middleware.RequirePermission("users", "read"), h.GetUserClassAccess)
+		//users.PUT("/:id/class-access", middleware.RequirePermission("classes", "manage"), h.SetUserClassAccess)
 	}
 }
 

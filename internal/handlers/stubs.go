@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -8,6 +9,7 @@ import (
 	"github.com/school-invoice/backend/internal/dto"
 	"github.com/school-invoice/backend/internal/middleware"
 	"github.com/school-invoice/backend/internal/models"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Stub implementations for handlers
@@ -114,27 +116,166 @@ func (h *Handler) DeleteRole(c *gin.Context) {
 
 // User handlers
 func (h *Handler) ListUsers(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "List users - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	users, err := models.GetUsers(h.dbx, schoolID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get users")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get users"})
+		return
+	}
+	c.JSON(http.StatusOK, users)
 }
 
 func (h *Handler) CreateUser(c *gin.Context) {
-	c.JSON(http.StatusCreated, models.SuccessResponse{Message: "Create user - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyCreateUser).(dto.CreateUserRequest)
+	schoolID := middleware.GetSchoolID(c)
+
+	// verify if the email already exists
+	exists, err := (&models.User{Email: req.Email}).EmailExists(h.dbx)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to check email existence")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to check email existence"})
+		return
+	}
+	if exists {
+		c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Email already exists"})
+		return
+	}
+
+	// verify school id is the same as the school id in the role
+	role, err := models.GetRole(h.dbx, schoolID, req.RoleID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get role")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get role"})
+		return
+	}
+	if role.SchoolID != schoolID {
+		h.logger.
+			WithError(err).
+			WithField("school_id", schoolID).
+			WithField("role_id", req.RoleID).
+			Error("School ID does not match role school ID")
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "School ID does not match role school ID"})
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to generate password hash")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to generate password hash"})
+		return
+	}
+
+	user := models.User{
+		BaseModel:    models.NewBaseModel(),
+		SchoolID:     schoolID,
+		RoleID:       req.RoleID,
+		Email:        req.Email,
+		PasswordHash: string(hashedPassword),
+		FirstName:    req.FirstName,
+		LastName:     req.LastName,
+		Phone:        req.Phone,
+		IsActive:     func(v bool) *bool { return &v }(true),
+	}
+
+	if err := user.Create(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to create user")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create user"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, user)
 }
 
-func (h *Handler) GetUser(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Get user - to be implemented"})
+func (h *Handler) GetSingleUser(c *gin.Context) {
+	req := c.MustGet(middleware.ReqBodyGetSingleUser).(dto.GetSingleUserRequest)
+
+	user := models.User{
+		BaseModel: models.BaseModel{
+			ID: req.UserID,
+		},
+		SchoolID: req.SchoolID,
+	}
+	userData, err := user.GetUser(h.dbx)
+	if err != nil {
+		h.logger.
+			WithError(err).
+			WithField("user_id", user.BaseModel.ID).
+			WithField("school_id", req.SchoolID).
+			Error("Failed to get user")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get user"})
+		return
+	}
+	c.JSON(http.StatusOK, userData)
 }
 
 func (h *Handler) UpdateUser(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Update user - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyUpdateUser).(dto.UpdateUserRequest)
+	requestorSchoolID := middleware.GetSchoolID(c)
+
+	user := models.User{
+		BaseModel: models.BaseModel{
+			ID: req.UserID,
+		},
+		FirstName: req.FirstName,
+		LastName:  req.LastName,
+		Phone:     req.Phone,
+	}
+
+	if err := user.Update(h.dbx, requestorSchoolID); err != nil {
+		h.logger.WithError(err).Error("Failed to update user")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update user"})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse{Message: "User updated successfully"})
 }
 
 func (h *Handler) UpdateUserRole(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Update user role - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyUpdateUserRole).(dto.UpdateUserRoleRequest)
+	requestorSchoolID := middleware.GetSchoolID(c)
+	role, err := models.GetRole(h.dbx, requestorSchoolID, req.RoleID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get role")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get role"})
+		return
+	}
+	if role.SchoolID != requestorSchoolID {
+		h.logger.WithError(errors.New("unauthorized")).Error("Unauthorized: Role school ID does not match requestor school ID")
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "Unauthorized"})
+		return
+	}
+	user := models.User{
+		BaseModel: models.BaseModel{
+			ID: req.UserID,
+		},
+		RoleID: req.RoleID,
+	}
+	if err := user.Update(h.dbx, requestorSchoolID); err != nil {
+		h.logger.WithError(err).Error("Failed to update user role")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update user role"})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse{Message: "User role updated successfully"})
 }
 
 func (h *Handler) UpdateUserStatus(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Update user status - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyUpdateUserStatus).(dto.UpdateUserStatusRequest)
+	requestorSchoolID := middleware.GetSchoolID(c)
+	user := models.User{
+		BaseModel: models.BaseModel{
+			ID: req.UserID,
+		},
+		IsActive: req.IsActive,
+	}
+	if err := user.Update(h.dbx, requestorSchoolID); err != nil {
+		h.logger.WithError(err).Error("Failed to update user status")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update user status"})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse{Message: "User status updated successfully"})
 }
 
 func (h *Handler) GetUserClassAccess(c *gin.Context) {
