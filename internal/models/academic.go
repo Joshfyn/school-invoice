@@ -9,11 +9,11 @@ import (
 // AcademicSession represents a school year (e.g., 2024/2025)
 type AcademicSession struct {
 	BaseModel
-	SchoolID  uuid.UUID `json:"school_id"`
-	Name      string    `json:"name"` // e.g., "2024/2025"
-	StartDate time.Time `json:"start_date"`
-	EndDate   time.Time `json:"end_date"`
-	IsCurrent bool      `json:"is_current"`
+	SchoolID  uuid.UUID  `json:"school_id"`
+	Name      string     `json:"name"` // e.g., "2024/2025"
+	StartDate *time.Time `json:"start_date"`
+	EndDate   *time.Time `json:"end_date"`
+	IsCurrent *bool      `json:"is_current"`
 }
 
 // CreateSessionRequest is the request body for creating an academic session
@@ -38,17 +38,6 @@ type SessionResponse struct {
 	StartDate string    `json:"start_date"`
 	EndDate   string    `json:"end_date"`
 	IsCurrent bool      `json:"is_current"`
-}
-
-func (s *AcademicSession) ToResponse() SessionResponse {
-	return SessionResponse{
-		ID:        s.ID,
-		SchoolID:  s.SchoolID,
-		Name:      s.Name,
-		StartDate: s.StartDate.Format("2006-01-02"),
-		EndDate:   s.EndDate.Format("2006-01-02"),
-		IsCurrent: s.IsCurrent,
-	}
 }
 
 // Term represents a term within an academic session
@@ -156,4 +145,53 @@ func (c *Class) ToResponse() ClassResponse {
 
 func (c *Class) DisplayName() string {
 	return c.Name + "-" + c.Section
+}
+
+func (a *AcademicSession) Create(dbx DBTX) error {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	_, err := dbx.ExecContext(ctx, `
+		INSERT INTO academic_sessions (id, school_id, name, start_date, end_date, is_current)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, a.ID, a.SchoolID, a.Name, a.StartDate, a.EndDate, a.IsCurrent)
+	return err
+}
+
+func (a *AcademicSession) Update(dbx DBTX) error {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+	// build update query
+	query := "UPDATE academic_sessions SET updated_at = $1"
+	args := []interface{}{time.Now()}
+	argIndex := 2
+	if a.Name != "" {
+		query += ", name = $" + string(rune('0'+argIndex))
+		args = append(args, a.Name)
+		argIndex++
+	}
+	if a.StartDate != nil {
+		query += ", start_date = $" + string(rune('0'+argIndex))
+		args = append(args, a.StartDate)
+		argIndex++
+	}
+	if a.EndDate != nil {
+		query += ", end_date = $" + string(rune('0'+argIndex))
+		args = append(args, a.EndDate)
+		argIndex++
+	}
+	if a.IsCurrent != nil {
+		query += ", is_current = $" + string(rune('0'+argIndex))
+		args = append(args, a.IsCurrent)
+		argIndex++
+	}
+	query += " WHERE id = $" + string(rune('0'+argIndex))
+	args = append(args, a.ID)
+	argIndex++
+	query += " AND school_id = $" + string(rune('0'+argIndex))
+	args = append(args, a.SchoolID)
+	argIndex++
+
+	_, err := dbx.ExecContext(ctx, query, args...)
+	return err
 }

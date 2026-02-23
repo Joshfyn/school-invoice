@@ -292,11 +292,44 @@ func (h *Handler) ListSessions(c *gin.Context) {
 }
 
 func (h *Handler) CreateSession(c *gin.Context) {
-	c.JSON(http.StatusCreated, models.SuccessResponse{Message: "Create session - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyCreateSession).(dto.CreateSessionRequest)
+
+	session := models.AcademicSession{
+		BaseModel: models.NewBaseModel(),
+		SchoolID:  req.SchoolID,
+		Name:      req.Name,
+		StartDate: &req.Start,
+		EndDate:   &req.End,
+		IsCurrent: &req.IsCurrent,
+	}
+	if err := session.Create(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to create session")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create session"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, session)
 }
 
 func (h *Handler) UpdateSession(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Update session - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyUpdateSession).(dto.UpdateSessionRequest)
+	session := models.AcademicSession{
+		BaseModel: models.BaseModel{
+			ID: req.SessionID,
+		},
+		SchoolID:  req.SchoolID,
+		Name:      req.Name,
+		StartDate: &req.Start,
+		EndDate:   &req.End,
+		IsCurrent: req.IsCurrent,
+	}
+	if err := session.Update(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to update session")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update session"})
+		return
+	}
+
+	c.JSON(http.StatusOK, session)
 }
 
 func (h *Handler) SetCurrentSession(c *gin.Context) {
