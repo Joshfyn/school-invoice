@@ -369,7 +369,22 @@ func (h *Handler) ListTerms(c *gin.Context) {
 }
 
 func (h *Handler) CreateTerm(c *gin.Context) {
-	c.JSON(http.StatusCreated, models.SuccessResponse{Message: "Create term - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyCreateTerm).(dto.CreateTermRequest)
+	term := models.Term{
+		BaseModel: models.NewBaseModel(),
+		SchoolID:  req.SchoolID,
+		SessionID: req.SessionID,
+		Name:      req.Name,
+		SortOrder: req.SortOrder,
+		IsCurrent: false,
+	}
+	if err := term.Create(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to create term")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create term"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, term)
 }
 
 func (h *Handler) UpdateTerm(c *gin.Context) {

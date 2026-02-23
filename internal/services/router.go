@@ -130,7 +130,7 @@ func (svc *EducationService) setupTermRoutes(protected *gin.RouterGroup, h *hand
 	terms := protected.Group("/terms")
 	{
 		terms.GET("", h.ListTerms)
-		terms.POST("", middleware.RequirePermission("sessions", "manage"), h.CreateTerm)
+		terms.POST("", middleware.ValidateCreateTermRequest, middleware.RequirePermission("sessions", "manage"), h.CreateTerm)
 		terms.PUT("/:id", middleware.RequirePermission("sessions", "manage"), h.UpdateTerm)
 		terms.PUT("/:id/current", middleware.RequirePermission("sessions", "manage"), h.SetCurrentTerm)
 	}
