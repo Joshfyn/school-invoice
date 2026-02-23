@@ -22,7 +22,12 @@ type UpdateSessionRequest struct {
 	SchoolID  uuid.UUID `json:"-"`
 	StartDate string    `json:"start_date,omitempty"`
 	EndDate   string    `json:"end_date,omitempty"`
-	IsCurrent *bool     `json:"is_current,omitempty"`
 	Start     time.Time `json:"-"`
 	End       time.Time `json:"-"`
+}
+
+type SetCurrentSessionRequest struct {
+	SessionID uuid.UUID `json:"-"`
+	SchoolID  uuid.UUID `json:"-"`
+	IsCurrent bool      `json:"is_current"`
 }

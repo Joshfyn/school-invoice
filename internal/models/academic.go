@@ -195,3 +195,27 @@ func (a *AcademicSession) Update(dbx DBTX) error {
 	_, err := dbx.ExecContext(ctx, query, args...)
 	return err
 }
+
+func (a *AcademicSession) List(dbx DBTX) ([]AcademicSession, error) {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	rows, err := dbx.QueryxContext(ctx, `
+		SELECT id, school_id, name, start_date, end_date, is_current FROM academic_sessions WHERE school_id = $1
+	`, a.SchoolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	sessions := []AcademicSession{}
+	for rows.Next() {
+		var session AcademicSession
+		err := rows.Scan(&session.ID, &session.SchoolID, &session.Name, &session.StartDate, &session.EndDate, &session.IsCurrent)
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, session)
+	}
+	return sessions, nil
+}

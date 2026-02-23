@@ -117,11 +117,29 @@ func ValidateUpdateSessionRequest(c *gin.Context) {
 		req.Name = fmt.Sprintf("%d/%d", req.Start.Year(), req.End.Year())
 	}
 
-	if req.IsCurrent != nil {
-		req.IsCurrent = func(v bool) *bool { return &v }(*req.IsCurrent)
-	}
-
 	req.SchoolID = GetSchoolID(c)
 	c.Set(ReqBodyUpdateSession, req)
+	c.Next()
+}
+
+func ValidateSetCurrentSessionRequest(c *gin.Context) {
+	logger := c.MustGet(ContextKeyLogger).(*logger.Logger)
+	var req dto.SetCurrentSessionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.
+			WithError(err).
+			Error("Failed to bind JSON")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	sessionID := c.Param("id")
+	if sessionID == "" {
+		logger.Error("Session ID is required")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Session ID is required"})
+		return
+	}
+	req.SessionID = uuid.MustParse(sessionID)
+	req.SchoolID = GetSchoolID(c)
+	c.Set(ReqBodySetCurrentSession, req)
 	c.Next()
 }
