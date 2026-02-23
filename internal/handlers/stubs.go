@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/school-invoice/backend/internal/dto"
 	"github.com/school-invoice/backend/internal/middleware"
 	"github.com/school-invoice/backend/internal/models"
@@ -288,19 +289,78 @@ func (h *Handler) SetUserClassAccess(c *gin.Context) {
 
 // Session handlers
 func (h *Handler) ListSessions(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "List sessions - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	sessions, err := (&models.AcademicSession{SchoolID: schoolID}).List(h.dbx)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to list sessions")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to list sessions"})
+		return
+	}
+	c.JSON(http.StatusOK, sessions)
 }
 
 func (h *Handler) CreateSession(c *gin.Context) {
-	c.JSON(http.StatusCreated, models.SuccessResponse{Message: "Create session - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyCreateSession).(dto.CreateSessionRequest)
+
+	session := models.AcademicSession{
+		BaseModel: models.NewBaseModel(),
+		SchoolID:  req.SchoolID,
+		Name:      req.Name,
+		StartDate: &req.Start,
+		EndDate:   &req.End,
+		IsCurrent: &req.IsCurrent,
+	}
+	if err := session.Create(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to create session")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create session"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, session)
 }
 
 func (h *Handler) UpdateSession(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Update session - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyUpdateSession).(dto.UpdateSessionRequest)
+	session := models.AcademicSession{
+		BaseModel: models.BaseModel{
+			ID: req.SessionID,
+		},
+		SchoolID:  req.SchoolID,
+		Name:      req.Name,
+		StartDate: &req.Start,
+		EndDate:   &req.End,
+	}
+	if err := session.Update(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to update session")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update session"})
+		return
+	}
+
+	c.JSON(http.StatusOK, session)
 }
 
 func (h *Handler) SetCurrentSession(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Set current session - to be implemented"})
+	req := c.MustGet(middleware.ReqBodySetCurrentSession).(dto.SetCurrentSessionRequest)
+	session := models.AcademicSession{
+		BaseModel: models.BaseModel{
+			ID: req.SessionID,
+		},
+		SchoolID:  req.SchoolID,
+		IsCurrent: &req.IsCurrent,
+	}
+	if err := session.Update(h.dbx); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_unique_current_session" {
+			h.logger.WithError(err).Error("Another session is already current for this school")
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Another session is already current for this school"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to set current session")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to set current session"})
+		return
+	}
+
+	c.JSON(http.StatusOK, session)
 }
 
 // Term handlers

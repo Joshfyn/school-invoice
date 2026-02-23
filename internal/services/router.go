@@ -119,9 +119,9 @@ func (svc *EducationService) setupSessionRoutes(protected *gin.RouterGroup, h *h
 	sessions := protected.Group("/sessions")
 	{
 		sessions.GET("", h.ListSessions)
-		sessions.POST("", middleware.RequirePermission("sessions", "manage"), h.CreateSession)
-		sessions.PUT("/:id", middleware.RequirePermission("sessions", "manage"), h.UpdateSession)
-		sessions.PUT("/:id/current", middleware.RequirePermission("sessions", "manage"), h.SetCurrentSession)
+		sessions.POST("", middleware.ValidateCreateSessionRequest, middleware.RequirePermission("sessions", "manage"), h.CreateSession)
+		sessions.PUT("/:id", middleware.ValidateUpdateSessionRequest, middleware.RequirePermission("sessions", "manage"), h.UpdateSession)
+		sessions.PUT("/:id/current", middleware.ValidateSetCurrentSessionRequest, middleware.RequirePermission("sessions", "manage"), h.SetCurrentSession)
 	}
 }
 

@@ -15,4 +15,7 @@ const (
 	ReqBodyCreateRole          = "create_role"
 	ReqBodyUpdateRole          = "update_role"
 	ReqBodyDeleteRole          = "delete_role"
+	ReqBodyCreateSession       = "create_session"
+	ReqBodyUpdateSession       = "update_session"
+	ReqBodySetCurrentSession   = "set_current_session"
 )
