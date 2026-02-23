@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -174,32 +175,107 @@ func (h *Handler) CreateUser(c *gin.Context) {
 		FirstName:    req.FirstName,
 		LastName:     req.LastName,
 		Phone:        req.Phone,
-		IsActive:     true,
+		IsActive:     func(v bool) *bool { return &v }(true),
 	}
 
 	if err := user.Create(h.dbx); err != nil {
 		h.logger.WithError(err).Error("Failed to create user")
-		respondWithError(c, http.StatusInternalServerError, "server_error", "failed to create user")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create user"})
 		return
 	}
 
 	c.JSON(http.StatusCreated, user)
 }
 
-func (h *Handler) GetUser(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Get user - to be implemented"})
+func (h *Handler) GetSingleUser(c *gin.Context) {
+	req := c.MustGet(middleware.ReqBodyGetSingleUser).(dto.GetSingleUserRequest)
+
+	user := models.User{
+		BaseModel: models.BaseModel{
+			ID: req.UserID,
+		},
+		SchoolID: req.SchoolID,
+	}
+	userData, err := user.GetUser(h.dbx)
+	if err != nil {
+		h.logger.
+			WithError(err).
+			WithField("user_id", user.BaseModel.ID).
+			WithField("school_id", req.SchoolID).
+			Error("Failed to get user")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get user"})
+		return
+	}
+	c.JSON(http.StatusOK, userData)
 }
 
 func (h *Handler) UpdateUser(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Update user - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyUpdateUser).(dto.UpdateUserRequest)
+	requestorSchoolID := middleware.GetSchoolID(c)
+
+	user := models.User{
+		BaseModel: models.BaseModel{
+			ID: req.UserID,
+		},
+		FirstName: req.FirstName,
+		LastName:  req.LastName,
+		Phone:     req.Phone,
+	}
+
+	if err := user.Update(h.dbx, requestorSchoolID); err != nil {
+		h.logger.WithError(err).Error("Failed to update user")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update user"})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse{Message: "User updated successfully"})
 }
 
 func (h *Handler) UpdateUserRole(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Update user role - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyUpdateUserRole).(dto.UpdateUserRoleRequest)
+	requestorSchoolID := middleware.GetSchoolID(c)
+	role, err := models.GetRole(h.dbx, requestorSchoolID, req.RoleID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get role")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get role"})
+		return
+	}
+	if role.SchoolID != requestorSchoolID {
+		h.logger.WithError(errors.New("unauthorized")).Error("Unauthorized: Role school ID does not match requestor school ID")
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "Unauthorized"})
+		return
+	}
+	user := models.User{
+		BaseModel: models.BaseModel{
+			ID: req.UserID,
+		},
+		RoleID: req.RoleID,
+	}
+	if err := user.Update(h.dbx, requestorSchoolID); err != nil {
+		h.logger.WithError(err).Error("Failed to update user role")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update user role"})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse{Message: "User role updated successfully"})
 }
 
 func (h *Handler) UpdateUserStatus(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Update user status - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyUpdateUserStatus).(dto.UpdateUserStatusRequest)
+	requestorSchoolID := middleware.GetSchoolID(c)
+	user := models.User{
+		BaseModel: models.BaseModel{
+			ID: req.UserID,
+		},
+		IsActive: req.IsActive,
+	}
+	if err := user.Update(h.dbx, requestorSchoolID); err != nil {
+		h.logger.WithError(err).Error("Failed to update user status")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update user status"})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse{Message: "User status updated successfully"})
 }
 
 func (h *Handler) GetUserClassAccess(c *gin.Context) {

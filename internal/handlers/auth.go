@@ -166,7 +166,7 @@ func (h *Handler) Register(c *gin.Context) {
 		FirstName:    regReq.AdminFirstName,
 		LastName:     regReq.AdminLastName,
 		Phone:        regReq.AdminPhone,
-		IsActive:     true,
+		IsActive:     func(v bool) *bool { return &v }(true),
 	}).Create(tx)
 	if err != nil {
 		h.logger.
@@ -257,8 +257,7 @@ func (h *Handler) Login(c *gin.Context) {
 	}
 
 	// Find user by email
-	var user = models.User{Email: req.Email}
-	err := user.FindByEmail(h.dbx)
+	userAndRole, err := (&models.User{Email: req.Email}).FindByEmail(h.dbx)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			h.logger.
@@ -282,10 +281,10 @@ func (h *Handler) Login(c *gin.Context) {
 	}
 
 	// Check if user is active
-	if !user.IsActive {
+	if userAndRole.User.IsActive == nil || !*userAndRole.User.IsActive {
 		h.logger.
 			WithField("email", req.Email).
-			WithField("user_id", user.ID).
+			WithField("user_id", userAndRole.User.ID).
 			Error("User is disabled")
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse{
 			Error:   "account_disabled",
@@ -295,25 +294,26 @@ func (h *Handler) Login(c *gin.Context) {
 	}
 
 	// Verify password
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(userAndRole.User.PasswordHash), []byte(req.Password)); err != nil {
 		respondWithError(c, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password")
 		return
 	}
 
 	// Generate JWT token
 	token, err := h.generateToken(TokenClaimsRequirement{
-		UserID:   user.ID,
-		SchoolID: user.SchoolID,
-		RoleID:   user.RoleID,
-		Email:    user.Email,
+		UserID:       userAndRole.User.ID,
+		SchoolID:     userAndRole.User.SchoolID,
+		RoleID:       userAndRole.Role.ID,
+		Email:        userAndRole.User.Email,
+		IsSuperAdmin: userAndRole.Role.IsSuperAdmin,
 	})
 	if err != nil {
 		h.logger.
 			WithError(err).
-			WithField("user_id", user.ID).
-			WithField("school_id", user.SchoolID).
-			WithField("role_id", user.RoleID).
-			WithField("email", user.Email).
+			WithField("user_id", userAndRole.User.ID).
+			WithField("school_id", userAndRole.User.SchoolID).
+			WithField("role_id", userAndRole.Role.ID).
+			WithField("email", userAndRole.User.Email).
 			Error("Failed to generate token")
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
 			Error:   "server_error",
@@ -322,7 +322,7 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 	// set token to redis
-	err = h.redis.Set(context.Background(), token, user.ID.String(), ResetTokenExpiry)
+	err = h.redis.Set(context.Background(), token, userAndRole.User.ID.String(), ResetTokenExpiry)
 	if err != nil {
 		h.logger.
 			WithError(err).
@@ -337,14 +337,14 @@ func (h *Handler) Login(c *gin.Context) {
 
 	c.JSON(http.StatusOK, dto.LoginResponse{
 		User: dto.UserResponse{
-			ID:        user.ID,
-			SchoolID:  user.SchoolID,
-			RoleID:    user.RoleID,
-			Email:     user.Email,
-			FirstName: user.FirstName,
-			LastName:  user.LastName,
-			Phone:     user.Phone,
-			IsActive:  user.IsActive,
+			ID:        userAndRole.User.ID,
+			SchoolID:  userAndRole.User.SchoolID,
+			RoleID:    userAndRole.Role.ID,
+			Email:     userAndRole.User.Email,
+			FirstName: userAndRole.User.FirstName,
+			LastName:  userAndRole.User.LastName,
+			Phone:     userAndRole.User.Phone,
+			IsActive:  userAndRole.User.IsActive == nil || *userAndRole.User.IsActive,
 		},
 		Token: token,
 	})
@@ -365,7 +365,7 @@ func (h *Handler) ForgotPassword(c *gin.Context) {
 	}
 
 	var user = models.User{Email: req.Email}
-	err := user.FindByEmail(h.dbx)
+	userAndRole, err := user.FindByEmail(h.dbx)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			h.logger.
@@ -387,6 +387,7 @@ func (h *Handler) ForgotPassword(c *gin.Context) {
 		})
 		return
 	}
+	user = userAndRole.User
 
 	// 1. Generate JWT token
 	resetToken, err := h.generateToken(TokenClaimsRequirement{
@@ -509,7 +510,7 @@ func (h *Handler) ResetPassword(c *gin.Context) {
 	// verify email exists
 	// Find user by email
 	var user = models.User{Email: tokenDetails.Email}
-	err = user.FindByEmail(h.dbx)
+	userAndRole, err := user.FindByEmail(h.dbx)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			h.logger.
@@ -531,6 +532,7 @@ func (h *Handler) ResetPassword(c *gin.Context) {
 		})
 		return
 	}
+	user = userAndRole.User
 
 	// 2. Update password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
@@ -578,12 +580,13 @@ func (h *Handler) ResetPassword(c *gin.Context) {
 }
 
 type TokenClaimsRequirement struct {
-	UserID   uuid.UUID `json:"user_id"`
-	SchoolID uuid.UUID `json:"school_id"`
-	RoleID   uuid.UUID `json:"role_id"`
-	Email    string    `json:"email"`
-	Exp      int64     `json:"exp"`
-	Iat      int64     `json:"iat"`
+	UserID       uuid.UUID `json:"user_id"`
+	SchoolID     uuid.UUID `json:"school_id"`
+	RoleID       uuid.UUID `json:"role_id"`
+	Email        string    `json:"email"`
+	IsSuperAdmin bool      `json:"is_super_admin"`
+	Exp          int64     `json:"exp"`
+	Iat          int64     `json:"iat"`
 }
 
 // generateToken creates a JWT token for the user
@@ -596,12 +599,13 @@ func (h *Handler) generateToken(claims TokenClaimsRequirement) (string, error) {
 	}
 
 	claimsJWT := jwt.MapClaims{
-		"user_id":   claims.UserID.String(),
-		"school_id": claims.SchoolID.String(),
-		"role_id":   claims.RoleID.String(),
-		"email":     claims.Email,
-		"exp":       claims.Exp,
-		"iat":       claims.Iat,
+		"user_id":        claims.UserID.String(),
+		"school_id":      claims.SchoolID.String(),
+		"role_id":        claims.RoleID.String(),
+		"email":          claims.Email,
+		"is_super_admin": claims.IsSuperAdmin,
+		"exp":            claims.Exp,
+		"iat":            claims.Iat,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claimsJWT)
@@ -639,11 +643,12 @@ func (h *Handler) GetTokenDetails(tokenString string) (TokenClaimsRequirement, e
 
 	// TTL check is handled automatically by jwt.ParseWithClaims()
 	return TokenClaimsRequirement{
-		UserID:   claims.UserID,
-		SchoolID: claims.SchoolID,
-		RoleID:   claims.RoleID,
-		Email:    claims.Email,
-		Exp:      claims.Exp,
-		Iat:      claims.Iat,
+		UserID:       claims.UserID,
+		SchoolID:     claims.SchoolID,
+		RoleID:       claims.RoleID,
+		Email:        claims.Email,
+		IsSuperAdmin: claims.IsSuperAdmin,
+		Exp:          claims.Exp,
+		Iat:          claims.Iat,
 	}, nil
 }

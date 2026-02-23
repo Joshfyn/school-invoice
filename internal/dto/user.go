@@ -15,21 +15,31 @@ type CreateUserRequest struct {
 	Phone     string    `json:"phone" binding:"required"`
 }
 
+// GetSingleUserRequest is the request body for getting a single user
+type GetSingleUserRequest struct {
+	UserID       uuid.UUID `json:"-"`
+	SchoolID     uuid.UUID `json:"-"`
+	IsSuperAdmin bool      `json:"-"`
+}
+
 // UpdateUserRequest is the request body for updating a user
 type UpdateUserRequest struct {
-	FirstName *string `json:"first_name,omitempty" binding:"omitempty,min=2"`
-	LastName  *string `json:"last_name,omitempty" binding:"omitempty,min=2"`
-	Phone     *string `json:"phone,omitempty"`
+	UserID    uuid.UUID `json:"-"`
+	FirstName string    `json:"first_name,omitempty" binding:"omitempty,min=2"`
+	LastName  string    `json:"last_name,omitempty" binding:"omitempty,min=2"`
+	Phone     string    `json:"phone,omitempty"`
 }
 
 // UpdateUserRoleRequest is the request body for changing a user's role
 type UpdateUserRoleRequest struct {
+	UserID uuid.UUID `json:"-"`
 	RoleID uuid.UUID `json:"role_id" binding:"required"`
 }
 
 // UpdateUserStatusRequest is the request body for activating/deactivating a user
 type UpdateUserStatusRequest struct {
-	IsActive bool `json:"is_active"`
+	UserID   uuid.UUID `json:"-"`
+	IsActive *bool     `json:"is_active"`
 }
 
 // UserResponse is the response for user data

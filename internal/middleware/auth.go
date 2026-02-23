@@ -15,11 +15,12 @@ import (
 
 // Context keys for storing user info
 const (
-	ContextKeyUserID   = "user_id"
-	ContextKeySchoolID = "school_id"
-	ContextKeyRoleID   = "role_id"
-	ContextKeyRole     = "role"
-	ContextKeyUser     = "user"
+	ContextKeyUserID       = "user_id"
+	ContextKeySchoolID     = "school_id"
+	ContextKeyRoleID       = "role_id"
+	ContextKeyIsSuperAdmin = "is_super_admin"
+	ContextKeyRole         = "role"
+	ContextKeyUser         = "user"
 )
 
 // Auth middleware validates JWT token and sets user context
@@ -108,11 +109,12 @@ func Auth(jwtSecret string, redis *database.Redis) gin.HandlerFunc {
 
 		schoolID, _ := uuid.Parse(claims["school_id"].(string))
 		roleID, _ := uuid.Parse(claims["role_id"].(string))
+		isSuperAdmin := claims["is_super_admin"].(bool)
 
 		c.Set(ContextKeyUserID, userID)
 		c.Set(ContextKeySchoolID, schoolID)
 		c.Set(ContextKeyRoleID, roleID)
-
+		c.Set(ContextKeyIsSuperAdmin, isSuperAdmin)
 		c.Next()
 	}
 }
@@ -139,6 +141,14 @@ func GetRoleID(c *gin.Context) uuid.UUID {
 		return id.(uuid.UUID)
 	}
 	return uuid.Nil
+}
+
+// GetIsSuperAdmin retrieves is super admin from context
+func GetIsSuperAdmin(c *gin.Context) bool {
+	if isSuperAdmin, exists := c.Get(ContextKeyIsSuperAdmin); exists {
+		return isSuperAdmin.(bool)
+	}
+	return false
 }
 
 // GetRole retrieves role from context
