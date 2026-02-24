@@ -13,6 +13,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+const (
+	ConstraintUniqueCurrentTerm = "idx_unique_current_term"
+	ErrorCodeUniqueCurrentTerm = "23505"
+)
+
 // Stub implementations for handlers
 func (h *Handler) ListRoles(c *gin.Context) {
 	schoolID := middleware.GetSchoolID(c)
@@ -370,13 +375,14 @@ func (h *Handler) ListTerms(c *gin.Context) {
 
 func (h *Handler) CreateTerm(c *gin.Context) {
 	req := c.MustGet(middleware.ReqBodyCreateTerm).(dto.CreateTermRequest)
+	isCurrent := false
 	term := models.Term{
 		BaseModel: models.NewBaseModel(),
 		SchoolID:  req.SchoolID,
 		SessionID: req.SessionID,
 		Name:      req.Name,
 		SortOrder: req.SortOrder,
-		IsCurrent: false,
+		IsCurrent: &isCurrent,
 	}
 	if err := term.Create(h.dbx); err != nil {
 		h.logger.WithError(err).Error("Failed to create term")
@@ -388,11 +394,54 @@ func (h *Handler) CreateTerm(c *gin.Context) {
 }
 
 func (h *Handler) UpdateTerm(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Update term - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyUpdateTerm).(dto.UpdateTermRequest)
+	term := models.Term{
+		BaseModel: models.BaseModel{
+			ID: req.TermID,
+		},
+		SchoolID:  req.SchoolID,
+		SessionID: req.SessionID,
+		Name:      req.Name,
+		SortOrder: req.SortOrder,
+		StartDate: &req.Start,
+		EndDate:   &req.End,
+	}
+	if err := term.Update(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to update term")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update term"})
+		return
+	}
+
+	c.JSON(http.StatusOK, term)
 }
 
 func (h *Handler) SetCurrentTerm(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Set current term - to be implemented"})
+	req := c.MustGet(middleware.ReqBodySetCurrentTerm).(dto.SetCurrentTermRequest)
+	term := models.Term{
+		BaseModel: models.BaseModel{
+			ID: req.TermID,
+		},
+		SchoolID:  req.SchoolID,
+		IsCurrent: &req.IsCurrent,
+	}
+	if err := term.Update(h.dbx); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == ErrorCodeUniqueCurrentTerm && pgErr.ConstraintName == ConstraintUniqueCurrentTerm {
+			h.logger.WithError(err).
+				WithField("school_id", req.SchoolID).
+				Error("Another term is already current for this school")
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Another term is already current for this school"})
+			return
+		}
+		h.logger.WithError(err).
+			WithField("school_id", req.SchoolID).
+			WithField("term_id", req.TermID).
+			Error("Failed to set current term")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to set current term"})
+		return
+	}
+
+	c.JSON(http.StatusOK, term)
 }
 
 // Class handlers

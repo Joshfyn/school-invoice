@@ -48,10 +48,22 @@ type CreateTermRequest struct {
 
 // UpdateTermRequest is the request body for updating a term
 type UpdateTermRequest struct {
-	Name      *string `json:"name,omitempty"`
-	SortOrder *int    `json:"sort_order,omitempty"`
-	StartDate *string `json:"start_date,omitempty"`
-	EndDate   *string `json:"end_date,omitempty"`
+	Name      models.TermType `json:"name,omitempty"`
+	SortOrder int             `json:"sort_order,omitempty"`
+	StartDate string          `json:"start_date,omitempty"`
+	EndDate   string          `json:"end_date,omitempty"`
+	Start     time.Time       `json:"-"`
+	End       time.Time       `json:"-"`
+	SchoolID  uuid.UUID       `json:"-"`
+	UserID    uuid.UUID       `json:"-"`
+	SessionID uuid.UUID       `json:"session_id,omitempty"`
+	TermID    uuid.UUID       `json:"-"`
+}
+type SetCurrentTermRequest struct {
+	TermID    uuid.UUID `json:"-"`
+	SchoolID  uuid.UUID `json:"-"`
+	UserID    uuid.UUID `json:"-"`
+	IsCurrent bool      `json:"is_current" binding:"required"`
 }
 
 // CreateClassRequest is the request body for creating a class

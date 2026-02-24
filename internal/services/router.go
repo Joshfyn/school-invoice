@@ -131,8 +131,8 @@ func (svc *EducationService) setupTermRoutes(protected *gin.RouterGroup, h *hand
 	{
 		terms.GET("", h.ListTerms)
 		terms.POST("", middleware.ValidateCreateTermRequest, middleware.RequirePermission("sessions", "manage"), h.CreateTerm)
-		terms.PUT("/:id", middleware.RequirePermission("sessions", "manage"), h.UpdateTerm)
-		terms.PUT("/:id/current", middleware.RequirePermission("sessions", "manage"), h.SetCurrentTerm)
+		terms.PUT("/:id", middleware.ValidateUpdateTermRequest, middleware.RequirePermission("sessions", "manage"), h.UpdateTerm)
+		terms.PUT("/:id/current", middleware.ValidateSetCurrentTermRequest, middleware.RequirePermission("sessions", "manage"), h.SetCurrentTerm)
 	}
 }
 

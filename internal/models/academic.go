@@ -86,9 +86,9 @@ type Term struct {
 	SessionID uuid.UUID `json:"session_id"`
 	Name      TermType  `json:"name"` // e.g., FirstTerm, SecondTerm, ThirdTerm
 	SortOrder int       `json:"sort_order"`
-	StartDate time.Time `json:"start_date"`
-	EndDate   time.Time `json:"end_date"`
-	IsCurrent bool      `json:"is_current"`
+	StartDate *time.Time `json:"start_date"`
+	EndDate   *time.Time `json:"end_date"`
+	IsCurrent *bool      `json:"is_current"`
 }
 
 // Class represents a class with section (e.g., JSS1-A)
@@ -197,5 +197,46 @@ func (t *Term) Create(dbx DBTX) error {
 		INSERT INTO terms (id, school_id, session_id, name, sort_order, start_date, end_date, is_current)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`, t.ID, t.SchoolID, t.SessionID, t.Name, t.SortOrder, t.StartDate, t.EndDate, t.IsCurrent)
+	return err
+}
+
+func (t *Term) Update(dbx DBTX) error {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	// build update query
+	query := "UPDATE terms SET updated_at = $1"
+	args := []interface{}{time.Now()}
+	argIndex := 2
+	if t.Name != "" {
+		query += ", name = $" + string(rune('0'+argIndex))
+		args = append(args, t.Name)
+		argIndex++
+	}
+	if t.SortOrder != 0 {
+		query += ", sort_order = $" + string(rune('0'+argIndex))
+		args = append(args, t.SortOrder)
+		argIndex++
+	}
+	if t.StartDate != nil {
+		query += ", start_date = $" + string(rune('0'+argIndex))
+		args = append(args, t.StartDate)
+		argIndex++
+	}
+	if t.EndDate != nil {
+		query += ", end_date = $" + string(rune('0'+argIndex))
+		args = append(args, t.EndDate)
+		argIndex++
+	}
+	query += " WHERE id = $" + string(rune('0'+argIndex))
+	args = append(args, t.ID)
+	argIndex++
+	query += " AND school_id = $" + string(rune('0'+argIndex))
+	args = append(args, t.SchoolID)
+	argIndex++
+	query += " AND session_id = $" + string(rune('0'+argIndex))
+	args = append(args, t.SessionID)
+	argIndex++
+	_, err := dbx.ExecContext(ctx, query, args...)
 	return err
 }
