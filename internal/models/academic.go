@@ -1,10 +1,73 @@
 package models
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+type TermType string
+
+const (
+	FirstTerm  TermType = "first"
+	SecondTerm TermType = "second"
+	ThirdTerm  TermType = "third"
+)
+
+// Values return a list term types
+func (TT *TermType) Values() []TermType {
+	return []TermType{
+		FirstTerm,
+		SecondTerm,
+		ThirdTerm,
+	}
+}
+
+// Scan implement sql.Scanner interface
+func (TT *TermType) Scan(src interface{}) error {
+	var strTermType string
+	switch v := src.(type) {
+	case string:
+		strTermType = v
+	case []uint8:
+		strTermType = string(v)
+	case TermType:
+		strTermType = string(v)
+	default:
+		return fmt.Errorf("incompatible type %T for term type %v", src, src)
+	}
+
+	switch strTermType {
+	case string(FirstTerm):
+		*TT = FirstTerm
+	case string(SecondTerm):
+		*TT = SecondTerm
+	case string(ThirdTerm):
+		*TT = ThirdTerm
+	default:
+		return fmt.Errorf("term type %s not supported", strTermType)
+	}
+
+	return nil
+}
+
+// IsValid validate whether ConversionType is correct
+func (TT TermType) IsValid() bool {
+	switch TT {
+	case FirstTerm,
+		SecondTerm,
+		ThirdTerm:
+		return true
+	default:
+		return false
+	}
+}
+
+// String return a string value of a conversion type
+func (TT TermType) String() string {
+	return string(TT)
+}
 
 // AcademicSession represents a school year (e.g., 2024/2025)
 type AcademicSession struct {
@@ -16,83 +79,16 @@ type AcademicSession struct {
 	IsCurrent *bool      `json:"is_current"`
 }
 
-// CreateSessionRequest is the request body for creating an academic session
-type CreateSessionRequest struct {
-	Name      string `json:"name" binding:"required"`
-	StartDate string `json:"start_date" binding:"required"` // Format: YYYY-MM-DD
-	EndDate   string `json:"end_date" binding:"required"`   // Format: YYYY-MM-DD
-}
-
-// UpdateSessionRequest is the request body for updating an academic session
-type UpdateSessionRequest struct {
-	Name      *string `json:"name,omitempty"`
-	StartDate *string `json:"start_date,omitempty"`
-	EndDate   *string `json:"end_date,omitempty"`
-}
-
-// SessionResponse is the response for session data
-type SessionResponse struct {
-	ID        uuid.UUID `json:"id"`
-	SchoolID  uuid.UUID `json:"school_id"`
-	Name      string    `json:"name"`
-	StartDate string    `json:"start_date"`
-	EndDate   string    `json:"end_date"`
-	IsCurrent bool      `json:"is_current"`
-}
-
 // Term represents a term within an academic session
 type Term struct {
 	BaseModel
-	SchoolID  uuid.UUID `json:"school_id"`
-	SessionID uuid.UUID `json:"session_id"`
-	Name      string    `json:"name"` // e.g., "First Term", "Second Term", "Third Term"
-	SortOrder int       `json:"sort_order"`
-	StartDate time.Time `json:"start_date"`
-	EndDate   time.Time `json:"end_date"`
-	IsCurrent bool      `json:"is_current"`
-}
-
-// CreateTermRequest is the request body for creating a term
-type CreateTermRequest struct {
-	SessionID uuid.UUID `json:"session_id" binding:"required"`
-	Name      string    `json:"name" binding:"required"`
-	SortOrder int       `json:"sort_order" binding:"required,min=1"`
-	StartDate string    `json:"start_date" binding:"required"`
-	EndDate   string    `json:"end_date" binding:"required"`
-}
-
-// UpdateTermRequest is the request body for updating a term
-type UpdateTermRequest struct {
-	Name      *string `json:"name,omitempty"`
-	SortOrder *int    `json:"sort_order,omitempty"`
-	StartDate *string `json:"start_date,omitempty"`
-	EndDate   *string `json:"end_date,omitempty"`
-}
-
-// TermResponse is the response for term data
-type TermResponse struct {
-	ID        uuid.UUID        `json:"id"`
-	SchoolID  uuid.UUID        `json:"school_id"`
-	SessionID uuid.UUID        `json:"session_id"`
-	Name      string           `json:"name"`
-	SortOrder int              `json:"sort_order"`
-	StartDate string           `json:"start_date"`
-	EndDate   string           `json:"end_date"`
-	IsCurrent bool             `json:"is_current"`
-	Session   *SessionResponse `json:"session,omitempty"`
-}
-
-func (t *Term) ToResponse() TermResponse {
-	return TermResponse{
-		ID:        t.ID,
-		SchoolID:  t.SchoolID,
-		SessionID: t.SessionID,
-		Name:      t.Name,
-		SortOrder: t.SortOrder,
-		StartDate: t.StartDate.Format("2006-01-02"),
-		EndDate:   t.EndDate.Format("2006-01-02"),
-		IsCurrent: t.IsCurrent,
-	}
+	SchoolID  uuid.UUID  `json:"school_id"`
+	SessionID uuid.UUID  `json:"session_id"`
+	Name      TermType   `json:"name"` // e.g., FirstTerm, SecondTerm, ThirdTerm
+	SortOrder int        `json:"sort_order"`
+	StartDate *time.Time `json:"start_date"`
+	EndDate   *time.Time `json:"end_date"`
+	IsCurrent *bool      `json:"is_current"`
 }
 
 // Class represents a class with section (e.g., JSS1-A)
@@ -105,21 +101,6 @@ type Class struct {
 	IsActive  bool      `json:"is_active"`
 }
 
-// CreateClassRequest is the request body for creating a class
-type CreateClassRequest struct {
-	Name      string `json:"name" binding:"required"`
-	Section   string `json:"section" binding:"required"`
-	SortOrder int    `json:"sort_order" binding:"required,min=1"`
-}
-
-// UpdateClassRequest is the request body for updating a class
-type UpdateClassRequest struct {
-	Name      *string `json:"name,omitempty"`
-	Section   *string `json:"section,omitempty"`
-	SortOrder *int    `json:"sort_order,omitempty"`
-	IsActive  *bool   `json:"is_active,omitempty"`
-}
-
 // ClassResponse is the response for class data
 type ClassResponse struct {
 	ID          uuid.UUID `json:"id"`
@@ -129,18 +110,6 @@ type ClassResponse struct {
 	DisplayName string    `json:"display_name"` // e.g., "JSS1-A"
 	SortOrder   int       `json:"sort_order"`
 	IsActive    bool      `json:"is_active"`
-}
-
-func (c *Class) ToResponse() ClassResponse {
-	return ClassResponse{
-		ID:          c.ID,
-		SchoolID:    c.SchoolID,
-		Name:        c.Name,
-		Section:     c.Section,
-		DisplayName: c.Name + "-" + c.Section,
-		SortOrder:   c.SortOrder,
-		IsActive:    c.IsActive,
-	}
 }
 
 func (c *Class) DisplayName() string {
@@ -218,4 +187,168 @@ func (a *AcademicSession) List(dbx DBTX) ([]AcademicSession, error) {
 		sessions = append(sessions, session)
 	}
 	return sessions, nil
+}
+
+func (t *Term) Create(dbx DBTX) error {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	_, err := dbx.ExecContext(ctx, `
+		INSERT INTO terms (id, school_id, session_id, name, sort_order, start_date, end_date, is_current)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, t.ID, t.SchoolID, t.SessionID, t.Name, t.SortOrder, t.StartDate, t.EndDate, t.IsCurrent)
+	return err
+}
+
+func (t *Term) Update(dbx DBTX) error {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	// build update query
+	query := "UPDATE terms SET updated_at = $1"
+	args := []interface{}{time.Now()}
+	argIndex := 2
+	if t.Name != "" {
+		query += ", name = $" + string(rune('0'+argIndex))
+		args = append(args, t.Name)
+		argIndex++
+	}
+	if t.SortOrder != 0 {
+		query += ", sort_order = $" + string(rune('0'+argIndex))
+		args = append(args, t.SortOrder)
+		argIndex++
+	}
+	if t.StartDate != nil {
+		query += ", start_date = $" + string(rune('0'+argIndex))
+		args = append(args, t.StartDate)
+		argIndex++
+	}
+	if t.EndDate != nil {
+		query += ", end_date = $" + string(rune('0'+argIndex))
+		args = append(args, t.EndDate)
+		argIndex++
+	}
+	query += " WHERE id = $" + string(rune('0'+argIndex))
+	args = append(args, t.ID)
+	argIndex++
+	query += " AND school_id = $" + string(rune('0'+argIndex))
+	args = append(args, t.SchoolID)
+	argIndex++
+	query += " AND session_id = $" + string(rune('0'+argIndex))
+	args = append(args, t.SessionID)
+	argIndex++
+	_, err := dbx.ExecContext(ctx, query, args...)
+	return err
+}
+
+func (t *Term) List(dbx DBTX) ([]Term, error) {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	rows, err := dbx.QueryxContext(ctx, `
+		SELECT id, school_id, session_id, name, sort_order, start_date, end_date, is_current FROM terms WHERE school_id = $1
+	`, t.SchoolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	terms := []Term{}
+	for rows.Next() {
+		var term Term
+		err := rows.Scan(&term.ID, &term.SchoolID, &term.SessionID, &term.Name, &term.SortOrder, &term.StartDate, &term.EndDate, &term.IsCurrent)
+		if err != nil {
+			return nil, err
+		}
+		terms = append(terms, term)
+	}
+	return terms, nil
+}
+
+type ClassName string
+
+const (
+	JSS1 ClassName = "JSS1"
+	JSS2 ClassName = "JSS2"
+	JSS3 ClassName = "JSS3"
+	SS1  ClassName = "SS1"
+	SS2  ClassName = "SS2"
+	SS3  ClassName = "SS3"
+)
+
+// Values return a list term types
+func (C *ClassName) Values() []ClassName {
+	return []ClassName{
+		JSS1,
+		JSS2,
+		JSS3,
+		SS1,
+		SS2,
+		SS3,
+	}
+}
+
+// Scan implement sql.Scanner interface
+func (C *ClassName) Scan(src interface{}) error {
+	var strClassName string
+	switch v := src.(type) {
+	case string:
+		strClassName = v
+	case []uint8:
+		strClassName = string(v)
+	case TermType:
+		strClassName = string(v)
+	default:
+		return fmt.Errorf("incompatible type %T for class name %v", src, src)
+	}
+
+	switch strClassName {
+	case string(FirstTerm):
+		*C = JSS1
+	case string(JSS2):
+		*C = JSS2
+	case string(JSS3):
+		*C = JSS3
+	case string(SS1):
+		*C = SS1
+	case string(SS2):
+		*C = SS2
+	case string(SS3):
+		*C = SS3
+	default:
+		return fmt.Errorf("class name %s not supported", strClassName)
+	}
+
+	return nil
+}
+
+// IsValid validate whether ConversionType is correct
+func (C ClassName) IsValid() bool {
+	switch C {
+	case JSS1,
+		JSS2,
+		JSS3,
+		SS1,
+		SS2,
+		SS3:
+		return true
+	default:
+		return false
+	}
+}
+
+// String return a string value of a conversion type
+func (C ClassName) String() string {
+	return string(C)
+}
+
+func (c *Class) Create(dbx DBTX) error {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	_, err := dbx.ExecContext(ctx, `
+		INSERT INTO classes (id, school_id, name, section, sort_order, is_active)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, c.ID, c.SchoolID, c.Name, c.Section, c.SortOrder, c.IsActive)
+	return err
 }

@@ -130,9 +130,9 @@ func (svc *EducationService) setupTermRoutes(protected *gin.RouterGroup, h *hand
 	terms := protected.Group("/terms")
 	{
 		terms.GET("", h.ListTerms)
-		terms.POST("", middleware.RequirePermission("sessions", "manage"), h.CreateTerm)
-		terms.PUT("/:id", middleware.RequirePermission("sessions", "manage"), h.UpdateTerm)
-		terms.PUT("/:id/current", middleware.RequirePermission("sessions", "manage"), h.SetCurrentTerm)
+		terms.POST("", middleware.ValidateCreateTermRequest, middleware.RequirePermission("sessions", "manage"), h.CreateTerm)
+		terms.PUT("/:id", middleware.ValidateUpdateTermRequest, middleware.RequirePermission("sessions", "manage"), h.UpdateTerm)
+		terms.PUT("/:id/current", middleware.ValidateSetCurrentTermRequest, middleware.RequirePermission("sessions", "manage"), h.SetCurrentTerm)
 	}
 }
 
@@ -141,8 +141,8 @@ func (svc *EducationService) setupClassRoutes(protected *gin.RouterGroup, h *han
 	classes := protected.Group("/classes")
 	{
 		classes.GET("", h.ListClasses)
-		classes.POST("", middleware.RequirePermission("classes", "manage"), h.CreateClass)
-		classes.PUT("/:id", middleware.RequirePermission("classes", "manage"), h.UpdateClass)
+		classes.POST("", middleware.ValidateCreateClassRequest, middleware.RequirePermission("classes", "manage"), h.CreateClass)
+		classes.PUT("/:id", middleware.ValidateUpdateClassRequest, middleware.RequirePermission("classes", "manage"), h.UpdateClass)
 		classes.GET("/:id/students", middleware.RequirePermission("students", "read"), h.GetClassStudents)
 	}
 }

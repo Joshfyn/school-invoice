@@ -13,6 +13,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+const (
+	ConstraintUniqueCurrentTerm = "idx_unique_current_term"
+	ErrorCodeUniqueCurrentTerm  = "23505"
+)
+
 // Stub implementations for handlers
 func (h *Handler) ListRoles(c *gin.Context) {
 	schoolID := middleware.GetSchoolID(c)
@@ -365,19 +370,86 @@ func (h *Handler) SetCurrentSession(c *gin.Context) {
 
 // Term handlers
 func (h *Handler) ListTerms(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "List terms - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+
+	terms, err := (&models.Term{SchoolID: schoolID}).List(h.dbx)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to list terms")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to list terms"})
+		return
+	}
+	c.JSON(http.StatusOK, terms)
 }
 
 func (h *Handler) CreateTerm(c *gin.Context) {
-	c.JSON(http.StatusCreated, models.SuccessResponse{Message: "Create term - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyCreateTerm).(dto.CreateTermRequest)
+	isCurrent := false
+	term := models.Term{
+		BaseModel: models.NewBaseModel(),
+		SchoolID:  req.SchoolID,
+		SessionID: req.SessionID,
+		Name:      req.Name,
+		SortOrder: req.SortOrder,
+		IsCurrent: &isCurrent,
+	}
+	if err := term.Create(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to create term")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create term"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, term)
 }
 
 func (h *Handler) UpdateTerm(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Update term - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyUpdateTerm).(dto.UpdateTermRequest)
+	term := models.Term{
+		BaseModel: models.BaseModel{
+			ID: req.TermID,
+		},
+		SchoolID:  req.SchoolID,
+		SessionID: req.SessionID,
+		Name:      req.Name,
+		SortOrder: req.SortOrder,
+		StartDate: &req.Start,
+		EndDate:   &req.End,
+	}
+	if err := term.Update(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to update term")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update term"})
+		return
+	}
+
+	c.JSON(http.StatusOK, term)
 }
 
 func (h *Handler) SetCurrentTerm(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Set current term - to be implemented"})
+	req := c.MustGet(middleware.ReqBodySetCurrentTerm).(dto.SetCurrentTermRequest)
+	term := models.Term{
+		BaseModel: models.BaseModel{
+			ID: req.TermID,
+		},
+		SchoolID:  req.SchoolID,
+		IsCurrent: &req.IsCurrent,
+	}
+	if err := term.Update(h.dbx); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == ErrorCodeUniqueCurrentTerm && pgErr.ConstraintName == ConstraintUniqueCurrentTerm {
+			h.logger.WithError(err).
+				WithField("school_id", req.SchoolID).
+				Error("Another term is already current for this school")
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Another term is already current for this school"})
+			return
+		}
+		h.logger.WithError(err).
+			WithField("school_id", req.SchoolID).
+			WithField("term_id", req.TermID).
+			Error("Failed to set current term")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to set current term"})
+		return
+	}
+
+	c.JSON(http.StatusOK, term)
 }
 
 // Class handlers
@@ -386,7 +458,38 @@ func (h *Handler) ListClasses(c *gin.Context) {
 }
 
 func (h *Handler) CreateClass(c *gin.Context) {
-	c.JSON(http.StatusCreated, models.SuccessResponse{Message: "Create class - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyCreateClass).(dto.CreateClassRequest)
+	class := models.Class{
+		BaseModel: models.NewBaseModel(),
+		SchoolID:  req.SchoolID,
+		Name:      req.Name,
+		Section:   req.Section,
+		SortOrder: req.SortOrder,
+	}
+
+	if err := class.Create(h.dbx); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == ErrorCodeUniqueCurrentTerm && pgErr.ConstraintName == ConstraintUniqueCurrentTerm {
+			h.logger.WithError(err).
+				WithField("user_id", req.UserID).
+				WithField("school_id", req.SchoolID).
+				WithField("name", req.Name).
+				WithField("section", req.Section).
+				Error("Class already exists")
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Class already exists"})
+			return
+		}
+		h.logger.WithError(err).
+			WithField("user_id", req.UserID).
+			WithField("school_id", req.SchoolID).
+			WithField("name", req.Name).
+			WithField("section", req.Section).
+			Error("Failed to create class")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create class"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, class)
 }
 
 func (h *Handler) UpdateClass(c *gin.Context) {

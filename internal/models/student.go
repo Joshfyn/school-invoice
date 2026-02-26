@@ -57,7 +57,7 @@ type StudentResponse struct {
 	DateOfBirth     string             `json:"date_of_birth"`
 	AdmissionDate   string             `json:"admission_date"`
 	CurrentClass    *ClassResponse     `json:"current_class,omitempty"`
-	CurrentEnrollment *EnrollmentResponse `json:"current_enrollment,omitempty"`
+	//CurrentEnrollment *EnrollmentResponse `json:"current_enrollment,omitempty"`
 }
 
 func (s *Student) ToResponse() StudentResponse {
@@ -118,27 +118,3 @@ type UpdateEnrollmentStatusRequest struct {
 	Status EnrollmentStatus `json:"status" binding:"required,oneof=active promoted withdrawn"`
 }
 
-// EnrollmentResponse is the response for enrollment data
-type EnrollmentResponse struct {
-	ID         uuid.UUID        `json:"id"`
-	SchoolID   uuid.UUID        `json:"school_id"`
-	StudentID  uuid.UUID        `json:"student_id"`
-	ClassID    uuid.UUID        `json:"class_id"`
-	TermID     uuid.UUID        `json:"term_id"`
-	Status     EnrollmentStatus `json:"status"`
-	EnrolledAt string           `json:"enrolled_at"`
-	Class      *ClassResponse   `json:"class,omitempty"`
-	Term       *TermResponse    `json:"term,omitempty"`
-}
-
-func (e *StudentEnrollment) ToResponse() EnrollmentResponse {
-	return EnrollmentResponse{
-		ID:         e.ID,
-		SchoolID:   e.SchoolID,
-		StudentID:  e.StudentID,
-		ClassID:    e.ClassID,
-		TermID:     e.TermID,
-		Status:     e.Status,
-		EnrolledAt: e.EnrolledAt.Format("2006-01-02"),
-	}
-}

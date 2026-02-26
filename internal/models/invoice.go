@@ -75,7 +75,7 @@ type InvoiceResponse struct {
 	GraceDate      *string               `json:"grace_date,omitempty"`
 	GraceGrantedBy *uuid.UUID            `json:"grace_granted_by,omitempty"`
 	Student        *StudentResponse      `json:"student,omitempty"`
-	Enrollment     *EnrollmentResponse   `json:"enrollment,omitempty"`
+	//Enrollment     *EnrollmentResponse   `json:"enrollment,omitempty"`
 	Items          []InvoiceItemResponse `json:"items,omitempty"`
 	Payments       []PaymentResponse     `json:"payments,omitempty"`
 }

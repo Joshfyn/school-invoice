@@ -18,4 +18,9 @@ const (
 	ReqBodyCreateSession       = "create_session"
 	ReqBodyUpdateSession       = "update_session"
 	ReqBodySetCurrentSession   = "set_current_session"
+	ReqBodyCreateTerm          = "create_term"
+	ReqBodyUpdateTerm          = "update_term"
+	ReqBodySetCurrentTerm      = "set_current_term"
+	ReqBodyCreateClass         = "create_class"
+	ReqBodyUpdateClass         = "update_class"
 )
