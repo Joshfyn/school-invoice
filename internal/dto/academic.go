@@ -68,15 +68,20 @@ type SetCurrentTermRequest struct {
 
 // CreateClassRequest is the request body for creating a class
 type CreateClassRequest struct {
-	Name      string `json:"name" binding:"required"`
-	Section   string `json:"section" binding:"required"`
-	SortOrder int    `json:"sort_order" binding:"required,min=1"`
+	Name      string    `json:"name" binding:"required"`
+	Section   string    `json:"section" binding:"required"`
+	SortOrder int       `json:"sort_order" binding:"required,min=1"`
+	SchoolID  uuid.UUID `json:"-"`
+	UserID    uuid.UUID `json:"-"`
 }
 
 // UpdateClassRequest is the request body for updating a class
 type UpdateClassRequest struct {
-	Name      *string `json:"name,omitempty"`
-	Section   *string `json:"section,omitempty"`
-	SortOrder *int    `json:"sort_order,omitempty"`
-	IsActive  *bool   `json:"is_active,omitempty"`
+	Name      models.ClassName `json:"name,omitempty"`
+	Section   string           `json:"section,omitempty"`
+	SortOrder int              `json:"sort_order,omitempty"`
+	IsActive  bool             `json:"is_active,omitempty"`
+	SchoolID  uuid.UUID        `json:"-"`
+	UserID    uuid.UUID        `json:"-"`
+	ClassID   uuid.UUID        `json:"-"`
 }

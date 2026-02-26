@@ -141,8 +141,8 @@ func (svc *EducationService) setupClassRoutes(protected *gin.RouterGroup, h *han
 	classes := protected.Group("/classes")
 	{
 		classes.GET("", h.ListClasses)
-		classes.POST("", middleware.RequirePermission("classes", "manage"), h.CreateClass)
-		classes.PUT("/:id", middleware.RequirePermission("classes", "manage"), h.UpdateClass)
+		classes.POST("", middleware.ValidateCreateClassRequest, middleware.RequirePermission("classes", "manage"), h.CreateClass)
+		classes.PUT("/:id", middleware.ValidateUpdateClassRequest, middleware.RequirePermission("classes", "manage"), h.UpdateClass)
 		classes.GET("/:id/students", middleware.RequirePermission("students", "read"), h.GetClassStudents)
 	}
 }

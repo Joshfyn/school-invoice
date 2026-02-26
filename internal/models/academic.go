@@ -82,10 +82,10 @@ type AcademicSession struct {
 // Term represents a term within an academic session
 type Term struct {
 	BaseModel
-	SchoolID  uuid.UUID `json:"school_id"`
-	SessionID uuid.UUID `json:"session_id"`
-	Name      TermType  `json:"name"` // e.g., FirstTerm, SecondTerm, ThirdTerm
-	SortOrder int       `json:"sort_order"`
+	SchoolID  uuid.UUID  `json:"school_id"`
+	SessionID uuid.UUID  `json:"session_id"`
+	Name      TermType   `json:"name"` // e.g., FirstTerm, SecondTerm, ThirdTerm
+	SortOrder int        `json:"sort_order"`
 	StartDate *time.Time `json:"start_date"`
 	EndDate   *time.Time `json:"end_date"`
 	IsCurrent *bool      `json:"is_current"`
@@ -238,5 +238,117 @@ func (t *Term) Update(dbx DBTX) error {
 	args = append(args, t.SessionID)
 	argIndex++
 	_, err := dbx.ExecContext(ctx, query, args...)
+	return err
+}
+
+func (t *Term) List(dbx DBTX) ([]Term, error) {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	rows, err := dbx.QueryxContext(ctx, `
+		SELECT id, school_id, session_id, name, sort_order, start_date, end_date, is_current FROM terms WHERE school_id = $1
+	`, t.SchoolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	terms := []Term{}
+	for rows.Next() {
+		var term Term
+		err := rows.Scan(&term.ID, &term.SchoolID, &term.SessionID, &term.Name, &term.SortOrder, &term.StartDate, &term.EndDate, &term.IsCurrent)
+		if err != nil {
+			return nil, err
+		}
+		terms = append(terms, term)
+	}
+	return terms, nil
+}
+
+type ClassName string
+
+const (
+	JSS1 ClassName = "JSS1"
+	JSS2 ClassName = "JSS2"
+	JSS3 ClassName = "JSS3"
+	SS1  ClassName = "SS1"
+	SS2  ClassName = "SS2"
+	SS3  ClassName = "SS3"
+)
+
+// Values return a list term types
+func (C *ClassName) Values() []ClassName {
+	return []ClassName{
+		JSS1,
+		JSS2,
+		JSS3,
+		SS1,
+		SS2,
+		SS3,
+	}
+}
+
+// Scan implement sql.Scanner interface
+func (C *ClassName) Scan(src interface{}) error {
+	var strClassName string
+	switch v := src.(type) {
+	case string:
+		strClassName = v
+	case []uint8:
+		strClassName = string(v)
+	case TermType:
+		strClassName = string(v)
+	default:
+		return fmt.Errorf("incompatible type %T for class name %v", src, src)
+	}
+
+	switch strClassName {
+	case string(FirstTerm):
+		*C = JSS1
+	case string(JSS2):
+		*C = JSS2
+	case string(JSS3):
+		*C = JSS3
+	case string(SS1):
+		*C = SS1
+	case string(SS2):
+		*C = SS2
+	case string(SS3):
+		*C = SS3
+	default:
+		return fmt.Errorf("class name %s not supported", strClassName)
+	}
+
+	return nil
+}
+
+// IsValid validate whether ConversionType is correct
+func (C ClassName) IsValid() bool {
+	switch C {
+	case JSS1,
+		JSS2,
+		JSS3,
+		SS1,
+		SS2,
+		SS3:
+		return true
+	default:
+		return false
+	}
+}
+
+// String return a string value of a conversion type
+func (C ClassName) String() string {
+	return string(C)
+}
+
+func (c *Class) Create(dbx DBTX) error {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	_, err := dbx.ExecContext(ctx, `
+		INSERT INTO classes (id, school_id, name, section, sort_order, is_active)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, c.ID, c.SchoolID, c.Name, c.Section, c.SortOrder, c.IsActive)
 	return err
 }

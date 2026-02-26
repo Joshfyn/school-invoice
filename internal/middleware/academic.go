@@ -184,3 +184,92 @@ func ValidateSetCurrentTermRequest(c *gin.Context) {
 	c.Set(ReqBodySetCurrentTerm, req)
 	c.Next()
 }
+
+func ValidateCreateClassRequest(c *gin.Context) {
+	logger := c.MustGet(ContextKeyLogger).(*logger.Logger)
+	var req dto.CreateClassRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.
+			WithError(err).
+			Error("Failed to bind JSON")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	req.SchoolID = GetSchoolID(c)
+	req.UserID = GetUserID(c)
+
+	c.Set(ReqBodyCreateClass, req)
+	c.Next()
+}
+
+func ValidateUpdateClassRequest(c *gin.Context) {
+	logger := c.MustGet(ContextKeyLogger).(*logger.Logger)
+	var req dto.UpdateClassRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.
+			WithError(err).
+			Error("Failed to bind JSON")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	req.SchoolID = GetSchoolID(c)
+	req.UserID = GetUserID(c)
+	classID := c.Param("id")
+	if classID == "" {
+		logger.
+			WithField("user_id", req.UserID).
+			WithField("school_id", req.SchoolID).
+			Error("Class ID is required")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Class ID is required"})
+		return
+	}
+	req.ClassID = uuid.MustParse(classID)
+	if req.Name != "" {
+		if !req.Name.IsValid() {
+			logger.
+				WithField("user_id", req.UserID).
+				WithField("school_id", req.SchoolID).
+				Error("Invalid class name")
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid class name"})
+			return
+		}
+	}
+	if req.SortOrder < 1 {
+		logger.
+			WithField("user_id", req.UserID).
+			WithField("school_id", req.SchoolID).
+			Error("Sort order must be greater than 0")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Sort order must be greater than 0"})
+		return
+	}
+	if req.Section != "" {
+		if len(req.Section) > 1 {
+			logger.
+				WithField("user_id", req.UserID).
+				WithField("school_id", req.SchoolID).
+				Error("Section must be less than 2 characters")
+		}
+		if req.Section != "" {
+			logger.
+				WithField("user_id", req.UserID).
+				WithField("school_id", req.SchoolID).
+				Error("Section must be less than 2 characters")
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Section must be less than 2 characters"})
+			return
+		}
+	}
+	c.Set(ReqBodyUpdateClass, req)
+	c.Next()
+}
+
+/* func ValidateGetClassStudentsRequest(c *gin.Context) {
+	logger := c.MustGet(ContextKeyLogger).(*logger.Logger)
+	var req dto.GetClassStudentsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.
+			WithError(err).
+			Error("Failed to bind JSON")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+} */

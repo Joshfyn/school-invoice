@@ -15,7 +15,7 @@ import (
 
 const (
 	ConstraintUniqueCurrentTerm = "idx_unique_current_term"
-	ErrorCodeUniqueCurrentTerm = "23505"
+	ErrorCodeUniqueCurrentTerm  = "23505"
 )
 
 // Stub implementations for handlers
@@ -370,7 +370,15 @@ func (h *Handler) SetCurrentSession(c *gin.Context) {
 
 // Term handlers
 func (h *Handler) ListTerms(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "List terms - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+
+	terms, err := (&models.Term{SchoolID: schoolID}).List(h.dbx)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to list terms")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to list terms"})
+		return
+	}
+	c.JSON(http.StatusOK, terms)
 }
 
 func (h *Handler) CreateTerm(c *gin.Context) {
@@ -450,7 +458,38 @@ func (h *Handler) ListClasses(c *gin.Context) {
 }
 
 func (h *Handler) CreateClass(c *gin.Context) {
-	c.JSON(http.StatusCreated, models.SuccessResponse{Message: "Create class - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyCreateClass).(dto.CreateClassRequest)
+	class := models.Class{
+		BaseModel: models.NewBaseModel(),
+		SchoolID:  req.SchoolID,
+		Name:      req.Name,
+		Section:   req.Section,
+		SortOrder: req.SortOrder,
+	}
+
+	if err := class.Create(h.dbx); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == ErrorCodeUniqueCurrentTerm && pgErr.ConstraintName == ConstraintUniqueCurrentTerm {
+			h.logger.WithError(err).
+				WithField("user_id", req.UserID).
+				WithField("school_id", req.SchoolID).
+				WithField("name", req.Name).
+				WithField("section", req.Section).
+				Error("Class already exists")
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Class already exists"})
+			return
+		}
+		h.logger.WithError(err).
+			WithField("user_id", req.UserID).
+			WithField("school_id", req.SchoolID).
+			WithField("name", req.Name).
+			WithField("section", req.Section).
+			Error("Failed to create class")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create class"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, class)
 }
 
 func (h *Handler) UpdateClass(c *gin.Context) {
