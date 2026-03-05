@@ -15,7 +15,7 @@ import (
 
 const (
 	ConstraintUniqueCurrentTerm = "idx_unique_current_term"
-	ErrorCodeUniqueCurrentTerm  = "23505"
+	ErrorCodeUnique             = "23505"
 )
 
 // Stub implementations for handlers
@@ -434,7 +434,7 @@ func (h *Handler) SetCurrentTerm(c *gin.Context) {
 	}
 	if err := term.Update(h.dbx); err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == ErrorCodeUniqueCurrentTerm && pgErr.ConstraintName == ConstraintUniqueCurrentTerm {
+		if errors.As(err, &pgErr) && pgErr.Code == ErrorCodeUnique && pgErr.ConstraintName == ConstraintUniqueCurrentTerm {
 			h.logger.WithError(err).
 				WithField("school_id", req.SchoolID).
 				Error("Another term is already current for this school")
@@ -469,7 +469,7 @@ func (h *Handler) CreateClass(c *gin.Context) {
 
 	if err := class.Create(h.dbx); err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == ErrorCodeUniqueCurrentTerm && pgErr.ConstraintName == ConstraintUniqueCurrentTerm {
+		if errors.As(err, &pgErr) && pgErr.Code == ErrorCodeUnique && pgErr.ConstraintName == ConstraintUniqueCurrentTerm {
 			h.logger.WithError(err).
 				WithField("user_id", req.UserID).
 				WithField("school_id", req.SchoolID).
@@ -523,7 +523,49 @@ func (h *Handler) ListGuardians(c *gin.Context) {
 }
 
 func (h *Handler) CreateGuardian(c *gin.Context) {
-	c.JSON(http.StatusCreated, models.SuccessResponse{Message: "Create guardian - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyCreateGuardian).(dto.CreateGuardianRequest)
+	guardian := models.Guardian{
+		FirstName: req.FirstName,
+		LastName:  req.LastName,
+		Phone:     req.Phone,
+		Email:     req.Email,
+		Address:   req.Address,
+	}
+
+	// check if the guardian phone number already exists
+	exists, err := (&models.Guardian{Phone: req.Phone}).PhoneExists(h.dbx)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to check guardian existence")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to check guardian existence"})
+		return
+	}
+	if exists {
+		c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Guardian already exists"})
+		return
+	}
+
+	// check if the guardian email already exists
+	exists, err = (&models.Guardian{Email: req.Email}).EmailExists(h.dbx)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to check guardian existence")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to check guardian existence"})
+		return
+	}
+	if exists {
+		c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Guardian already exists"})
+		return
+	}
+
+	// TODO: send OTP to the guardian phone number
+	// TODO: send email to the guardian email address
+	// TODO: Once OTP is verified, confirm the guardian regisatration
+
+	if err := guardian.Create(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to create guardian")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create guardian"})
+		return
+	}
+	c.JSON(http.StatusCreated, guardian)
 }
 
 func (h *Handler) GetGuardian(c *gin.Context) {
@@ -531,7 +573,44 @@ func (h *Handler) GetGuardian(c *gin.Context) {
 }
 
 func (h *Handler) UpdateGuardian(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Update guardian - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyUpdateGuardian).(dto.UpdateGuardianRequest)
+
+	if req.Phone != "" {
+		if exists, err := (&models.Guardian{Phone: req.Phone}).PhoneExists(h.dbx); err != nil {
+			h.logger.WithError(err).Error("Failed to check guardian existence")
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to check guardian existence"})
+			return
+		} else if exists {
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Guardian phone number already exists"})
+			return
+		}
+	}
+
+	if req.Email != "" {
+		if exists, err := (&models.Guardian{Email: req.Email}).EmailExists(h.dbx); err != nil {
+			h.logger.WithError(err).Error("Failed to check guardian existence")
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to check guardian existence"})
+			return
+		} else if exists {
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Guardian email already exists"})
+			return
+		}
+	}
+
+	guardian := models.Guardian{
+		ID:        req.GuardianID,
+		FirstName: req.FirstName,
+		LastName:  req.LastName,
+		Phone:     req.Phone,
+		Email:     req.Email,
+		Address:   req.Address,
+	}
+	if err := guardian.Update(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to update guardian")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update guardian"})
+		return
+	}
+	c.JSON(http.StatusOK, guardian)
 }
 
 func (h *Handler) GetGuardianInvoices(c *gin.Context) {

@@ -11,3 +11,8 @@ ALTER TABLE students ADD COLUMN deleted_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE guardians ADD COLUMN deleted_at TIMESTAMP WITH TIME ZONE;
 
 -- add deleted_at column to fee_types table
+
+
+-- add nin column to guardians table
+ALTER TABLE guardians ADD COLUMN nin VARCHAR(20);
+

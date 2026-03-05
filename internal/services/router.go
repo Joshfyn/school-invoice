@@ -163,9 +163,9 @@ func (svc *EducationService) setupGuardianRoutes(protected *gin.RouterGroup, h *
 	guardians := protected.Group("/guardians")
 	{
 		guardians.GET("", middleware.RequirePermission("guardians", "read"), h.ListGuardians)
-		guardians.POST("", middleware.RequirePermission("guardians", "create"), h.CreateGuardian)
+		guardians.POST("", middleware.RequirePermission("guardians", "create"), middleware.ValidateCreateGuardianRequest, h.CreateGuardian)
 		guardians.GET("/:id", middleware.RequirePermission("guardians", "read"), h.GetGuardian)
-		guardians.PUT("/:id", middleware.RequirePermission("guardians", "update"), h.UpdateGuardian)
+		guardians.PUT("/:id", middleware.RequirePermission("guardians", "update"), middleware.ValidateUpdateGuardianRequest, h.UpdateGuardian)
 		guardians.GET("/:id/invoices", middleware.RequirePermission("invoices", "read"), h.GetGuardianInvoices)
 	}
 }

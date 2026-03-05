@@ -174,7 +174,6 @@ CREATE UNIQUE INDEX idx_unique_enrollment ON student_enrollments(student_id, ter
 -- ============================================
 CREATE TABLE guardians (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100) NOT NULL,
     phone VARCHAR(20) NOT NULL,
@@ -184,8 +183,8 @@ CREATE TABLE guardians (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
-CREATE INDEX idx_guardians_school ON guardians(school_id);
-CREATE INDEX idx_guardians_phone ON guardians(school_id, phone);
+CREATE INDEX idx_guardians_phone ON guardians(phone);
+CREATE INDEX idx_guardians_email ON guardians(email);
 
 -- ============================================
 -- STUDENT GUARDIANS (Junction Table)

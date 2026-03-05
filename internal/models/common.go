@@ -29,8 +29,8 @@ func NewPaginatedResponse(data interface{}, page, limit int, totalItems int64) P
 
 // ErrorResponse represents an error response
 type ErrorResponse struct {
-	Error   string            `json:"error"`
-	Message string            `json:"message"`
+	Error   string            `json:"error,omitempty"`
+	Message string            `json:"message,omitempty"`
 	Details map[string]string `json:"details,omitempty"`
 }
 
@@ -50,32 +50,32 @@ type HealthResponse struct {
 
 // DashboardSummary represents the dashboard summary statistics
 type DashboardSummary struct {
-	TotalStudents     int64   `json:"total_students"`
-	TotalInvoices     int64   `json:"total_invoices"`
-	PendingInvoices   int64   `json:"pending_invoices"`
-	OverdueInvoices   int64   `json:"overdue_invoices"`
-	TotalCollected    float64 `json:"total_collected"`
-	TotalOutstanding  float64 `json:"total_outstanding"`
-	CollectionRate    float64 `json:"collection_rate"` // percentage
-	RecentPayments    []PaymentResponse `json:"recent_payments,omitempty"`
+	TotalStudents    int64             `json:"total_students"`
+	TotalInvoices    int64             `json:"total_invoices"`
+	PendingInvoices  int64             `json:"pending_invoices"`
+	OverdueInvoices  int64             `json:"overdue_invoices"`
+	TotalCollected   float64           `json:"total_collected"`
+	TotalOutstanding float64           `json:"total_outstanding"`
+	CollectionRate   float64           `json:"collection_rate"` // percentage
+	RecentPayments   []PaymentResponse `json:"recent_payments,omitempty"`
 }
 
 // OutstandingReport represents outstanding fees report
 type OutstandingReport struct {
-	StudentID     string  `json:"student_id"`
-	StudentName   string  `json:"student_name"`
-	AdmissionNo   string  `json:"admission_no"`
-	ClassName     string  `json:"class_name"`
-	TotalDue      float64 `json:"total_due"`
-	AmountPaid    float64 `json:"amount_paid"`
-	Outstanding   float64 `json:"outstanding"`
-	InvoiceCount  int     `json:"invoice_count"`
+	StudentID    string  `json:"student_id"`
+	StudentName  string  `json:"student_name"`
+	AdmissionNo  string  `json:"admission_no"`
+	ClassName    string  `json:"class_name"`
+	TotalDue     float64 `json:"total_due"`
+	AmountPaid   float64 `json:"amount_paid"`
+	Outstanding  float64 `json:"outstanding"`
+	InvoiceCount int     `json:"invoice_count"`
 }
 
 // CollectionReport represents collection report data
 type CollectionReport struct {
-	Period        string  `json:"period"` // e.g., "2024-01", "2024-01-15"
-	TotalAmount   float64 `json:"total_amount"`
-	PaymentCount  int     `json:"payment_count"`
-	ByMethod      map[string]float64 `json:"by_method"`
+	Period       string             `json:"period"` // e.g., "2024-01", "2024-01-15"
+	TotalAmount  float64            `json:"total_amount"`
+	PaymentCount int                `json:"payment_count"`
+	ByMethod     map[string]float64 `json:"by_method"`
 }
