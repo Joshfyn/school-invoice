@@ -73,6 +73,66 @@ A multi-tenant invoicing system for Nigerian primary and secondary schools.
    make dev
    ```
 
+### Local Development (Windows)
+
+These steps assume you’re using **PowerShell**.
+
+1. Install required software:
+   - **Git**: install Git for Windows and ensure `git` works in PowerShell.
+   - **Go 1.21+**: install Go and ensure `go version` works.
+   - **Docker Desktop**: enable WSL2 backend (recommended) and ensure Docker is running.
+   - **Optional (recommended)**: install `make` (or use the non-`make` commands below).
+
+2. Clone the repository and create your env file:
+   ```powershell
+   git clone <your-repo-url>
+   cd school-invoice
+   Copy-Item .env.example .env
+   ```
+
+3. Download Go dependencies:
+   ```powershell
+   go mod download
+   ```
+
+4. Start PostgreSQL and Redis:
+   ```powershell
+   docker-compose up -d db redis
+   ```
+   If `docker-compose` isn’t available, use:
+   ```powershell
+   docker compose up -d db redis
+   ```
+
+5. Install dev tools (migrate + air):
+   - With `make`: `make tools`
+   - Without `make`:
+
+```powershell
+go install github.com/air-verse/air@latest
+go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+```
+
+   Ensure your Go bin directory is on `PATH` (commonly `%USERPROFILE%\go\bin`) so `air` and `migrate` are available.
+
+6. Run migrations:
+   Set `DATABASE_URL`:
+
+```powershell
+$env:DATABASE_URL="postgres://postgres:postgres@localhost:5432/school_invoice?sslmode=disable"
+```
+
+   - With `make`: `make migrate-up`
+   - Without `make`: `migrate -path .\migrations -database "$env:DATABASE_URL" up`
+
+7. Run the API:
+   - With `make`: `make run`
+   - Without `make`: `go run .\cmd\api`
+
+8. Hot reload (optional):
+   - With `make`: `make dev`
+   - Without `make`: `air -c .air.toml`
+
 ## Project Structure
 
 ```
