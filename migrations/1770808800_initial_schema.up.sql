@@ -133,13 +133,12 @@ CREATE UNIQUE INDEX idx_unique_user_class ON user_class_access(user_id, class_id
 -- ============================================
 CREATE TABLE students (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
-    admission_no VARCHAR(50) NOT NULL,
     first_name VARCHAR(100) NOT NULL,
+    middle_name VARCHAR(100),
     last_name VARCHAR(100) NOT NULL,
     gender VARCHAR(10) NOT NULL CHECK (gender IN ('male', 'female')),
     date_of_birth DATE NOT NULL,
-    admission_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    nin VARCHAR(20) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );

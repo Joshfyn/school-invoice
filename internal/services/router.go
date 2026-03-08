@@ -175,10 +175,10 @@ func (svc *EducationService) setupStudentRoutes(protected *gin.RouterGroup, h *h
 	students := protected.Group("/students")
 	{
 		students.GET("", middleware.RequirePermission("students", "read"), h.ListStudents)
-		students.POST("", middleware.RequirePermission("students", "create"), h.CreateStudent)
+		students.POST("", middleware.ValidateCreateStudentRequest, middleware.RequirePermission("students", "create"), h.CreateStudent)
 		students.POST("/bulk", middleware.RequirePermission("students", "create"), h.BulkCreateStudents)
-		students.GET("/:id", middleware.RequirePermission("students", "read"), h.GetStudent)
-		students.PUT("/:id", middleware.RequirePermission("students", "update"), h.UpdateStudent)
+		students.GET("/:id", middleware.ValidateGetSingleStudentRequest, middleware.RequirePermission("students", "read"), h.GetStudent)
+		students.PUT("/:id", middleware.ValidateUpdateStudentRequest, middleware.RequirePermission("students", "update"), h.UpdateStudent)
 		students.GET("/:id/enrollments", middleware.RequirePermission("students", "read"), h.GetStudentEnrollments)
 		students.GET("/:id/guardians", middleware.RequirePermission("guardians", "read"), h.GetStudentGuardians)
 		students.POST("/:id/guardians", middleware.RequirePermission("guardians", "create"), h.LinkStudentGuardian)

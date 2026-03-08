@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"errors"
 	"net/http"
 
@@ -623,7 +624,38 @@ func (h *Handler) ListStudents(c *gin.Context) {
 }
 
 func (h *Handler) CreateStudent(c *gin.Context) {
-	c.JSON(http.StatusCreated, models.SuccessResponse{Message: "Create student - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyCreateStudent).(dto.CreateStudentRequest)
+	student := models.Student{
+		FirstName:   req.FirstName,
+		MiddleName:  req.MiddleName,
+		LastName:    req.LastName,
+		Gender:      req.Gender,
+		DateOfBirth: req.DateOfBirth,
+		NIN:         req.NIN,
+	}
+	// check if the student NIN already exists
+	exists, err := student.NINExists(h.dbx)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to check student existence")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to check student existence"})
+		return
+	}
+	if exists {
+		c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Student NIN already exists"})
+		return
+	}
+
+	if err := student.Create(h.dbx); err != nil {
+		h.logger.
+			WithError(err).
+			WithField("first_name", req.FirstName).
+			WithField("middle_name", req.MiddleName).
+			WithField("nin", req.NIN).
+			Error("Failed to create student")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create student"})
+		return
+	}
+	c.JSON(http.StatusCreated, student)
 }
 
 func (h *Handler) BulkCreateStudents(c *gin.Context) {
@@ -631,11 +663,54 @@ func (h *Handler) BulkCreateStudents(c *gin.Context) {
 }
 
 func (h *Handler) GetStudent(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Get student - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyGetSingleStudent).(dto.GetSingleStudentRequest)
+	student := models.Student{
+		ID: req.StudentID,
+	}
+	err := student.Get(h.dbx)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			h.logger.WithError(err).Error("Student not found")
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Student not found"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to get student")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get student"})
+		return
+	}
+	c.JSON(http.StatusOK, student)
 }
 
 func (h *Handler) UpdateStudent(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Update student - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyUpdateStudent).(dto.UpdateStudentRequest)
+	student := models.Student{
+		ID: req.StudentID,
+	}
+	if req.FirstName != "" {
+		student.FirstName = req.FirstName
+	}
+	if req.MiddleName != "" {
+		student.MiddleName = req.MiddleName
+	}
+	if req.LastName != "" {
+		student.LastName = req.LastName
+	}
+	if req.Gender != "" {
+		student.Gender = req.Gender
+	}
+	if !req.DateOfBirth.IsZero() {
+		student.DateOfBirth = &req.DateOfBirth
+	}
+	if req.NIN != "" {
+		student.NIN = req.NIN
+	}
+
+	if err := student.Update(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to update student")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update student"})
+		return
+	}
+	c.JSON(http.StatusOK, student)
 }
 
 func (h *Handler) GetStudentEnrollments(c *gin.Context) {

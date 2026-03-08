@@ -25,4 +25,7 @@ const (
 	ReqBodyUpdateClass         = "update_class"
 	ReqBodyCreateGuardian      = "create_guardian"
 	ReqBodyUpdateGuardian      = "update_guardian"
+	ReqBodyCreateStudent       = "create_student"
+	ReqBodyUpdateStudent       = "update_student"
+	ReqBodyGetSingleStudent    = "get_single_student"
 )

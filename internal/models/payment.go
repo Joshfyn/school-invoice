@@ -130,7 +130,7 @@ type PaystackWebhookPayload struct {
 type ReceiptData struct {
 	Payment     PaymentResponse    `json:"payment"`
 	Invoice     InvoiceResponse    `json:"invoice"`
-	Student     StudentResponse    `json:"student"`
+	//Student     StudentResponse    `json:"student"`
 	//School      dto.SchoolResponse `json:"school"`
 	ReceiptNo   string             `json:"receipt_no"`
 	GeneratedAt string             `json:"generated_at"`
