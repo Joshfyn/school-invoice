@@ -53,3 +53,12 @@ func GetDBContext(dbx DBTX) (context.Context, context.CancelFunc) {
 	}
 	return context.WithTimeout(context.Background(), DefaultDBTimeout)
 }
+
+func NamedQueryContext(dbx DBTX, ctx context.Context, query string, arg any) (*sqlx.Rows, error) {
+	q, args, err := dbx.BindNamed(query, arg)
+	if err != nil {
+		return nil, err
+	}
+	q = dbx.Rebind(q)
+	return dbx.QueryxContext(ctx, q, args...)
+}

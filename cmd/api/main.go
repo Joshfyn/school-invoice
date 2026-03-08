@@ -13,6 +13,9 @@ import (
 	"github.com/school-invoice/backend/internal/database"
 	"github.com/school-invoice/backend/internal/logger"
 	"github.com/school-invoice/backend/internal/services"
+	"github.com/school-invoice/backend/internal/middleware"
+	"github.com/gin-gonic/gin/binding"
+    "github.com/go-playground/validator/v10"
 )
 
 func main() {
@@ -54,6 +57,10 @@ func main() {
 
 	// Setup router with all routes
 	router := educationService.SetupRouter()
+	// Register custom "phone" tag
+    if v, ok := binding.Validator.Engine().(*validator.Validate); ok {
+        v.RegisterValidation("phone", middleware.PhoneValidator)
+    }
 
 	// Create HTTP server
 	srv := &http.Server{

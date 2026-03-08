@@ -218,6 +218,8 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
+	// TODO: send welcom and confiirmation request email to admin
+
 	c.JSON(http.StatusCreated, dto.RegisterResponse{
 		School: dto.SchoolResponse{
 			ID:        schoolID,
