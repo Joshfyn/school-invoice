@@ -23,7 +23,7 @@ If the repo isn’t on GitHub yet:
 git add .
 git commit -m "Prepare Render staging deployment"
 git remote add origin git@github.com:YOUR_USER/school-invoice.git
-git push -u origin main
+git push -u origin master
 ```
 
 **You are here:** do this first, then continue to Step 2.
@@ -142,7 +142,7 @@ curl -X POST https://YOUR-SERVICE.onrender.com/api/v1/auth/register \
 
 Already in `.github/workflows/ci.yml`:
 
-- On every push/PR to `main`: `go test ./...` + Docker build.
+- On every push/PR to `master` (or `main`): `go test ./...` + Docker build.
 - Render auto-deploys from GitHub when connected (no extra deploy action needed for staging).
 
 To enable: push to GitHub → **Actions** tab should show green checks.
