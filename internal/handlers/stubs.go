@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -670,11 +671,17 @@ func (h *Handler) GetStudent(c *gin.Context) {
 	err := student.Get(h.dbx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			h.logger.WithError(err).Error("Student not found")
+			h.logger.
+				WithError(err).
+				WithField("student_id", req.StudentID).
+				Error("Student not found")
 			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Student not found"})
 			return
 		}
-		h.logger.WithError(err).Error("Failed to get student")
+		h.logger.
+			WithError(err).
+			WithField("student_id", req.StudentID).
+			Error("Failed to get student")
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get student"})
 		return
 	}
@@ -706,11 +713,57 @@ func (h *Handler) UpdateStudent(c *gin.Context) {
 	}
 
 	if err := student.Update(h.dbx); err != nil {
-		h.logger.WithError(err).Error("Failed to update student")
+		h.logger.
+			WithError(err).
+			WithField("student_id", req.StudentID).
+			Error("Failed to update student")
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update student"})
 		return
 	}
 	c.JSON(http.StatusOK, student)
+}
+
+func (h *Handler) CreateStudentAdmission(c *gin.Context) {
+	req := c.MustGet(middleware.ReqBodyCreateStudentAdmission).(dto.CreateStudentAdmissionRequest)
+	admissionDate, err := time.Parse(middleware.DateFormat, req.AdmissionDate)
+	if err != nil {
+		h.logger.
+			WithError(err).
+			Error("Failed to parse admission date")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to parse admission date"})
+		return
+	}
+	studentAdmission := models.StudentAdmission{
+		StudentID:     req.StudentID,
+		SchoolID:      req.SchoolID,
+		AdmissionNo:   req.AdmissionNo,
+		AdmissionDate: admissionDate,
+	}
+	if err := studentAdmission.Create(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to create student admission")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create student admission"})
+		return
+	}
+	c.JSON(http.StatusCreated, studentAdmission)
+}
+
+func (h *Handler) DeleteStudentAdmission(c *gin.Context) {
+	req := c.MustGet(middleware.ReqBodyDeleteStudentAdmission).(dto.DeleteStudentAdmissionRequest)
+	studentAdmission := models.StudentAdmission{
+		StudentID: req.StudentID,
+		SchoolID:  req.SchoolID,
+	}
+	deleted, err := studentAdmission.Delete(h.dbx)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to delete student admission")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to delete student admission"})
+		return
+	}
+	if !deleted {
+		c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Student admission not found"})
+		return
+	}
+	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Student admission deleted"})
 }
 
 func (h *Handler) GetStudentEnrollments(c *gin.Context) {
