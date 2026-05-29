@@ -242,21 +242,13 @@ func ValidateUpdateClassRequest(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Sort order must be greater than 0"})
 		return
 	}
-	if req.Section != "" {
-		if len(req.Section) > 1 {
-			logger.
-				WithField("user_id", req.UserID).
-				WithField("school_id", req.SchoolID).
-				Error("Section must be less than 2 characters")
-		}
-		if req.Section != "" {
-			logger.
-				WithField("user_id", req.UserID).
-				WithField("school_id", req.SchoolID).
-				Error("Section must be less than 2 characters")
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Section must be less than 2 characters"})
-			return
-		}
+	if req.Section != "" && len(req.Section) > 10 {
+		logger.
+			WithField("user_id", req.UserID).
+			WithField("school_id", req.SchoolID).
+			Error("Section must be at most 10 characters")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Section must be at most 10 characters"})
+		return
 	}
 	c.Set(ReqBodyUpdateClass, req)
 	c.Next()

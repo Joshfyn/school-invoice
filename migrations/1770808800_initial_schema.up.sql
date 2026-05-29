@@ -143,9 +143,7 @@ CREATE TABLE students (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
-CREATE INDEX idx_students_school ON students(school_id);
-CREATE UNIQUE INDEX idx_unique_admission ON students(school_id, admission_no);
-CREATE INDEX idx_students_name ON students(school_id, first_name, last_name);
+CREATE INDEX idx_students_name ON students(first_name, last_name);
 
 -- ============================================
 -- STUDENT ENROLLMENTS

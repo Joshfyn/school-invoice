@@ -33,11 +33,11 @@ const (
 // StudentGuardian represents the many-to-many relationship between students and guardians
 type StudentGuardian struct {
 	BaseModel
-	StudentID             uuid.UUID    `json:"student_id"`
-	GuardianID            uuid.UUID    `json:"guardian_id"`
-	Relationship          Relationship `json:"relationship"`
-	IsPrimary             bool         `json:"is_primary"`
-	ReceivesNotifications bool         `json:"receives_notifications"`
+	StudentID             uuid.UUID    `json:"student_id" db:"student_id"`
+	GuardianID            uuid.UUID    `json:"guardian_id" db:"guardian_id"`
+	Relationship          Relationship `json:"relationship" db:"relationship"`
+	IsPrimary             bool         `json:"is_primary" db:"is_primary"`
+	ReceivesNotifications bool         `json:"receives_notifications" db:"receives_notifications"`
 }
 
 // LinkGuardianRequest is the request body for linking a guardian to a student
@@ -144,8 +144,11 @@ func (g *Guardian) Get(dbx DBTX) error {
 	ctx, cancel := GetDBContext(dbx)
 	defer cancel()
 
-	err := dbx.QueryRowContext(ctx, "SELECT id, first_name, last_name, phone, email, address FROM guardians WHERE id = $1", g.ID).
-		Scan(&g.ID, &g.FirstName, &g.LastName, &g.Phone, &g.Email, &g.Address)
+	err := dbx.QueryRowContext(ctx, `
+		SELECT id, first_name, last_name, phone, email, address, created_at, updated_at
+		FROM guardians WHERE id = $1 AND deleted_at IS NULL
+	`, g.ID).
+		Scan(&g.ID, &g.FirstName, &g.LastName, &g.Phone, &g.Email, &g.Address, &g.CreatedAt, &g.UpdatedAt)
 	if err != nil {
 		return err
 	}
@@ -153,26 +156,34 @@ func (g *Guardian) Get(dbx DBTX) error {
 	return nil
 }
 
-func (g *Guardian) List(dbx DBTX) ([]Guardian, error) {
+func (g *Guardian) List(dbx DBTX, schoolID uuid.UUID) ([]Guardian, error) {
 	ctx, cancel := GetDBContext(dbx)
 	defer cancel()
 
-	rows, err := dbx.QueryxContext(ctx, "SELECT id, school_id, first_name, last_name, phone, email, address FROM guardians")
-	if err != nil {
-		return []Guardian{}, err
-	}
-	defer rows.Close()
+	guardians := []Guardian{}
+	err := dbx.SelectContext(ctx, &guardians, `
+		SELECT DISTINCT g.id, g.first_name, g.last_name, g.phone, g.email, g.address, g.created_at, g.updated_at
+		FROM guardians g
+		INNER JOIN student_guardians sg ON sg.guardian_id = g.id
+		INNER JOIN student_admission sa ON sa.student_id = sg.student_id AND sa.deleted_at IS NULL
+		WHERE sa.school_id = $1 AND g.deleted_at IS NULL
+		ORDER BY g.last_name, g.first_name
+	`, schoolID)
+	return guardians, err
+}
+
+func ListAllGuardians(dbx DBTX) ([]Guardian, error) {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
 
 	guardians := []Guardian{}
-	for rows.Next() {
-		var guardian Guardian
-		err := rows.Scan(&guardian.ID, &guardian.FirstName, &guardian.LastName, &guardian.Phone, &guardian.Email, &guardian.Address)
-		if err != nil {
-			return []Guardian{}, err
-		}
-		guardians = append(guardians, guardian)
-	}
-	return guardians, nil
+	err := dbx.SelectContext(ctx, &guardians, `
+		SELECT id, first_name, last_name, phone, email, address, created_at, updated_at
+		FROM guardians
+		WHERE deleted_at IS NULL
+		ORDER BY last_name, first_name
+	`)
+	return guardians, err
 }
 
 func (g *Guardian) PhoneExists(dbx DBTX) (bool, error) {
@@ -192,9 +203,118 @@ func (g *Guardian) EmailExists(dbx DBTX) (bool, error) {
 	defer cancel()
 
 	exists := false
-	err := dbx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM guardians WHERE email = $1)", g.Email).Scan(&exists)
+	err := dbx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM guardians WHERE email = $1 AND deleted_at IS NULL)", g.Email).Scan(&exists)
 	if err != nil {
 		return false, err
 	}
 	return exists, nil
+}
+
+type GuardianDetailResponse struct {
+	Guardian
+	Students []StudentGuardianResponse `json:"students"`
+}
+
+type StudentGuardianResponse struct {
+	StudentGuardian
+	Guardian *Guardian `json:"guardian,omitempty"`
+	Student  *Student  `json:"student,omitempty"`
+}
+
+func (sg *StudentGuardian) Create(dbx DBTX) error {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	if sg.ID == uuid.Nil {
+		sg.ID = uuid.New()
+	}
+
+	rows, err := NamedQueryContext(dbx, ctx, `
+		INSERT INTO student_guardians (id, student_id, guardian_id, relationship, is_primary, receives_notifications)
+		VALUES (:id, :student_id, :guardian_id, :relationship, :is_primary, :receives_notifications)
+		RETURNING id, student_id, guardian_id, relationship, is_primary, receives_notifications, created_at, updated_at
+	`, sg)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return errors.New("student guardian link not created")
+	}
+	return rows.StructScan(sg)
+}
+
+func ListStudentGuardians(dbx DBTX, studentID uuid.UUID) ([]StudentGuardianResponse, error) {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	rows, err := dbx.QueryxContext(ctx, `
+		SELECT sg.id, sg.student_id, sg.guardian_id, sg.relationship, sg.is_primary, sg.receives_notifications,
+		       sg.created_at, sg.updated_at,
+		       g.id, g.first_name, g.last_name, g.phone, g.email, g.address
+		FROM student_guardians sg
+		INNER JOIN guardians g ON g.id = sg.guardian_id
+		WHERE sg.student_id = $1 AND g.deleted_at IS NULL
+		ORDER BY sg.is_primary DESC, g.last_name
+	`, studentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	results := []StudentGuardianResponse{}
+	for rows.Next() {
+		var resp StudentGuardianResponse
+		var guardian Guardian
+		if err := rows.Scan(
+			&resp.ID, &resp.StudentID, &resp.GuardianID, &resp.Relationship, &resp.IsPrimary, &resp.ReceivesNotifications,
+			&resp.CreatedAt, &resp.UpdatedAt,
+			&guardian.ID, &guardian.FirstName, &guardian.LastName, &guardian.Phone, &guardian.Email, &guardian.Address,
+		); err != nil {
+			return nil, err
+		}
+		resp.Guardian = &guardian
+		results = append(results, resp)
+	}
+	return results, nil
+}
+
+func GetGuardianWithStudents(dbx DBTX, schoolID, guardianID uuid.UUID) (*GuardianDetailResponse, error) {
+	guardian := Guardian{ID: guardianID}
+	if err := guardian.Get(dbx); err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	rows, err := dbx.QueryxContext(ctx, `
+		SELECT sg.id, sg.student_id, sg.guardian_id, sg.relationship, sg.is_primary, sg.receives_notifications,
+		       sg.created_at, sg.updated_at,
+		       s.id, s.first_name, s.middle_name, s.last_name, s.gender, s.date_of_birth, s.nin
+		FROM student_guardians sg
+		INNER JOIN students s ON s.id = sg.student_id
+		INNER JOIN student_admission sa ON sa.student_id = s.id AND sa.deleted_at IS NULL
+		WHERE sg.guardian_id = $1 AND sa.school_id = $2 AND s.deleted_at IS NULL
+	`, guardianID, schoolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	detail := &GuardianDetailResponse{Guardian: guardian}
+	for rows.Next() {
+		var link StudentGuardianResponse
+		var student Student
+		if err := rows.Scan(
+			&link.ID, &link.StudentID, &link.GuardianID, &link.Relationship, &link.IsPrimary, &link.ReceivesNotifications,
+			&link.CreatedAt, &link.UpdatedAt,
+			&student.ID, &student.FirstName, &student.MiddleName, &student.LastName, &student.Gender, &student.DateOfBirth, &student.NIN,
+		); err != nil {
+			return nil, err
+		}
+		link.Student = &student
+		detail.Students = append(detail.Students, link)
+	}
+	return detail, nil
 }

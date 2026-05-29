@@ -197,6 +197,12 @@ See the full API documentation for more endpoints.
 | PAYSTACK_SECRET_KEY | Paystack secret key | - |
 | TERMII_API_KEY | Termii API key | - |
 
+| RUN_MIGRATIONS | Run migrations on container start | true |
+
+## Deploy (Live Dev on Render)
+
+See **[docs/DEPLOY_RENDER.md](docs/DEPLOY_RENDER.md)** for step-by-step staging deployment using Render, Neon, and Upstash.
+
 ## License
 
 MIT

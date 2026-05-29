@@ -40,12 +40,12 @@ const (
 // StudentEnrollment represents a student's enrollment in a class for a term
 type StudentEnrollment struct {
 	BaseModel
-	SchoolID   uuid.UUID        `json:"school_id"`
-	StudentID  uuid.UUID        `json:"student_id"`
-	ClassID    uuid.UUID        `json:"class_id"`
-	TermID     uuid.UUID        `json:"term_id"`
-	Status     EnrollmentStatus `json:"status"`
-	EnrolledAt time.Time        `json:"enrolled_at"`
+	SchoolID   uuid.UUID        `json:"school_id" db:"school_id"`
+	StudentID  uuid.UUID        `json:"student_id" db:"student_id"`
+	ClassID    uuid.UUID        `json:"class_id" db:"class_id"`
+	TermID     uuid.UUID        `json:"term_id" db:"term_id"`
+	Status     EnrollmentStatus `json:"status" db:"status"`
+	EnrolledAt time.Time        `json:"enrolled_at" db:"enrolled_at"`
 }
 
 // CreateEnrollmentRequest is the request body for creating an enrollment

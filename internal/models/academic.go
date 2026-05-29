@@ -94,11 +94,11 @@ type Term struct {
 // Class represents a class with section (e.g., JSS1-A)
 type Class struct {
 	BaseModel
-	SchoolID  uuid.UUID `json:"school_id"`
-	Name      string    `json:"name"`    // e.g., "JSS1", "SS2"
-	Section   string    `json:"section"` // e.g., "A", "B", "C"
-	SortOrder int       `json:"sort_order"`
-	IsActive  bool      `json:"is_active"`
+	SchoolID  uuid.UUID `json:"school_id" db:"school_id"`
+	Name      string    `json:"name" db:"name"`
+	Section   string    `json:"section" db:"section"`
+	SortOrder int       `json:"sort_order" db:"sort_order"`
+	IsActive  bool      `json:"is_active" db:"is_active"`
 }
 
 // ClassResponse is the response for class data
@@ -346,9 +346,93 @@ func (c *Class) Create(dbx DBTX) error {
 	ctx, cancel := GetDBContext(dbx)
 	defer cancel()
 
+	if c.ID == uuid.Nil {
+		c.ID = uuid.New()
+	}
+
 	_, err := dbx.ExecContext(ctx, `
 		INSERT INTO classes (id, school_id, name, section, sort_order, is_active)
 		VALUES ($1, $2, $3, $4, $5, $6)
 	`, c.ID, c.SchoolID, c.Name, c.Section, c.SortOrder, c.IsActive)
 	return err
+}
+
+func (c *Class) Get(dbx DBTX, schoolID uuid.UUID) error {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	return dbx.GetContext(ctx, c, `
+		SELECT id, school_id, name, section, sort_order, is_active, created_at, updated_at
+		FROM classes
+		WHERE id = $1 AND school_id = $2
+	`, c.ID, schoolID)
+}
+
+func (c *Class) Update(dbx DBTX) error {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	query := "UPDATE classes SET updated_at = $1"
+	args := []interface{}{time.Now()}
+	argIndex := 2
+
+	if c.Name != "" {
+		query += fmt.Sprintf(", name = $%d", argIndex)
+		args = append(args, c.Name)
+		argIndex++
+	}
+	if c.Section != "" {
+		query += fmt.Sprintf(", section = $%d", argIndex)
+		args = append(args, c.Section)
+		argIndex++
+	}
+	if c.SortOrder > 0 {
+		query += fmt.Sprintf(", sort_order = $%d", argIndex)
+		args = append(args, c.SortOrder)
+		argIndex++
+	}
+	query += fmt.Sprintf(", is_active = $%d", argIndex)
+	args = append(args, c.IsActive)
+	argIndex++
+
+	query += fmt.Sprintf(" WHERE id = $%d AND school_id = $%d", argIndex, argIndex+1)
+	args = append(args, c.ID, c.SchoolID)
+
+	_, err := dbx.ExecContext(ctx, query, args...)
+	return err
+}
+
+func ListClasses(dbx DBTX, schoolID uuid.UUID, level string) ([]Class, error) {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	query := `
+		SELECT id, school_id, name, section, sort_order, is_active, created_at, updated_at
+		FROM classes
+		WHERE school_id = $1
+	`
+	args := []interface{}{schoolID}
+	if level != "" {
+		query += " AND name = $2"
+		args = append(args, level)
+	}
+	query += " ORDER BY sort_order, name, section"
+
+	classes := []Class{}
+	if err := dbx.SelectContext(ctx, &classes, query, args...); err != nil {
+		return nil, err
+	}
+	return classes, nil
+}
+
+func (c *Class) ToResponse() ClassResponse {
+	return ClassResponse{
+		ID:          c.ID,
+		SchoolID:    c.SchoolID,
+		Name:        c.Name,
+		Section:     c.Section,
+		DisplayName: c.DisplayName(),
+		SortOrder:   c.SortOrder,
+		IsActive:    c.IsActive,
+	}
 }

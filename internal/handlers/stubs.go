@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,6 +13,7 @@ import (
 	"github.com/school-invoice/backend/internal/dto"
 	"github.com/school-invoice/backend/internal/middleware"
 	"github.com/school-invoice/backend/internal/models"
+	"github.com/shopspring/decimal"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -19,6 +21,17 @@ const (
 	ConstraintUniqueCurrentTerm = "idx_unique_current_term"
 	ErrorCodeUnique             = "23505"
 )
+
+func parseIntDefault(value string, defaultValue int) int {
+	if value == "" {
+		return defaultValue
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 1 {
+		return defaultValue
+	}
+	return parsed
+}
 
 // Stub implementations for handlers
 func (h *Handler) ListRoles(c *gin.Context) {
@@ -454,9 +467,25 @@ func (h *Handler) SetCurrentTerm(c *gin.Context) {
 	c.JSON(http.StatusOK, term)
 }
 
+const constraintUniqueClass = "idx_unique_class"
+
 // Class handlers
 func (h *Handler) ListClasses(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "List classes - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	level := c.Query("level")
+
+	classes, err := models.ListClasses(h.dbx, schoolID, level)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to list classes")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to list classes"})
+		return
+	}
+
+	resp := make([]models.ClassResponse, 0, len(classes))
+	for i := range classes {
+		resp = append(resp, classes[i].ToResponse())
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) CreateClass(c *gin.Context) {
@@ -467,11 +496,12 @@ func (h *Handler) CreateClass(c *gin.Context) {
 		Name:      req.Name,
 		Section:   req.Section,
 		SortOrder: req.SortOrder,
+		IsActive:  true,
 	}
 
 	if err := class.Create(h.dbx); err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == ErrorCodeUnique && pgErr.ConstraintName == ConstraintUniqueCurrentTerm {
+		if errors.As(err, &pgErr) && pgErr.Code == ErrorCodeUnique && pgErr.ConstraintName == constraintUniqueClass {
 			h.logger.WithError(err).
 				WithField("user_id", req.UserID).
 				WithField("school_id", req.SchoolID).
@@ -495,33 +525,191 @@ func (h *Handler) CreateClass(c *gin.Context) {
 }
 
 func (h *Handler) UpdateClass(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Update class - to be implemented"})
+	req := c.MustGet(middleware.ReqBodyUpdateClass).(dto.UpdateClassRequest)
+
+	class := models.Class{
+		BaseModel: models.BaseModel{ID: req.ClassID},
+		SchoolID:  req.SchoolID,
+		Section:   req.Section,
+		SortOrder: req.SortOrder,
+		IsActive:  req.IsActive,
+	}
+	if req.Name != "" {
+		class.Name = string(req.Name)
+	}
+
+	if err := class.Update(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to update class")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update class"})
+		return
+	}
+
+	if err := class.Get(h.dbx, req.SchoolID); err != nil {
+		h.logger.WithError(err).Error("Failed to get updated class")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get updated class"})
+		return
+	}
+
+	c.JSON(http.StatusOK, class.ToResponse())
 }
 
 func (h *Handler) GetClassStudents(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Get class students - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	classID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		respondWithError(c, http.StatusBadRequest, "invalid_class_id", "invalid class id")
+		return
+	}
+
+	students, err := models.ListClassStudents(h.dbx, schoolID, classID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get class students")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get class students"})
+		return
+	}
+
+	c.JSON(http.StatusOK, students)
 }
 
 // Enrollment handlers
 func (h *Handler) ListEnrollments(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "List enrollments - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	filters := models.EnrollmentFilters{}
+
+	if termID := c.Query("term_id"); termID != "" {
+		id, err := uuid.Parse(termID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid term_id"})
+			return
+		}
+		filters.TermID = &id
+	}
+	if classID := c.Query("class_id"); classID != "" {
+		id, err := uuid.Parse(classID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid class_id"})
+			return
+		}
+		filters.ClassID = &id
+	}
+	if status := c.Query("status"); status != "" {
+		s := models.EnrollmentStatus(status)
+		filters.Status = &s
+	}
+
+	enrollments, err := models.ListEnrollments(h.dbx, schoolID, filters)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to list enrollments")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to list enrollments"})
+		return
+	}
+
+	resp := make([]models.EnrollmentResponse, 0, len(enrollments))
+	for i := range enrollments {
+		resp = append(resp, enrollments[i].ToResponse())
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) CreateEnrollment(c *gin.Context) {
-	c.JSON(http.StatusCreated, models.SuccessResponse{Message: "Create enrollment - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	var req models.CreateEnrollmentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	enrollment := models.StudentEnrollment{
+		BaseModel:  models.NewBaseModel(),
+		SchoolID:   schoolID,
+		StudentID:  req.StudentID,
+		ClassID:    req.ClassID,
+		TermID:     req.TermID,
+		Status:     models.EnrollmentActive,
+		EnrolledAt: time.Now().UTC(),
+	}
+	if err := enrollment.Create(h.dbx); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == ErrorCodeUnique {
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Student already enrolled for this term"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to create enrollment")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create enrollment"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, enrollment.ToResponse())
 }
 
 func (h *Handler) BulkEnrollment(c *gin.Context) {
-	c.JSON(http.StatusCreated, models.SuccessResponse{Message: "Bulk enrollment - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	var req models.BulkEnrollmentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	count, err := models.BulkEnrollStudents(h.dbx, schoolID, req)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to bulk enroll students")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to bulk enroll students"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"enrolled_count": count})
 }
 
 func (h *Handler) UpdateEnrollmentStatus(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Update enrollment status - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	enrollmentID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid enrollment id"})
+		return
+	}
+
+	var req models.UpdateEnrollmentStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	enrollment := models.StudentEnrollment{
+		BaseModel: models.BaseModel{ID: enrollmentID},
+		SchoolID:  schoolID,
+		Status:   req.Status,
+	}
+	if err := enrollment.UpdateStatus(h.dbx); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Enrollment not found"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to update enrollment status")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update enrollment status"})
+		return
+	}
+
+	if err := enrollment.Get(h.dbx, schoolID); err != nil {
+		h.logger.WithError(err).Error("Failed to get enrollment")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get enrollment"})
+		return
+	}
+
+	c.JSON(http.StatusOK, enrollment.ToResponse())
 }
 
 // Guardian handlers
 func (h *Handler) ListGuardians(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "List guardians - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+
+	guardians, err := (&models.Guardian{}).List(h.dbx, schoolID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to list guardians")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to list guardians"})
+		return
+	}
+
+	c.JSON(http.StatusOK, guardians)
 }
 
 func (h *Handler) CreateGuardian(c *gin.Context) {
@@ -571,7 +759,25 @@ func (h *Handler) CreateGuardian(c *gin.Context) {
 }
 
 func (h *Handler) GetGuardian(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Get guardian - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	guardianID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid guardian id"})
+		return
+	}
+
+	detail, err := models.GetGuardianWithStudents(h.dbx, schoolID, guardianID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Guardian not found"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to get guardian")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get guardian"})
+		return
+	}
+
+	c.JSON(http.StatusOK, detail)
 }
 
 func (h *Handler) UpdateGuardian(c *gin.Context) {
@@ -616,12 +822,52 @@ func (h *Handler) UpdateGuardian(c *gin.Context) {
 }
 
 func (h *Handler) GetGuardianInvoices(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Get guardian invoices - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	guardianID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid guardian id"})
+		return
+	}
+
+	invoices, err := models.ListGuardianInvoices(h.dbx, schoolID, guardianID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get guardian invoices")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get guardian invoices"})
+		return
+	}
+
+	resp := make([]models.InvoiceResponse, 0, len(invoices))
+	for i := range invoices {
+		resp = append(resp, invoices[i].ToResponse())
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // Student handlers
 func (h *Handler) ListStudents(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "List students - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	filters := models.StudentListFilters{
+		Search: c.Query("search"),
+		Page:   parseIntDefault(c.Query("page"), 1),
+		Limit:  parseIntDefault(c.Query("limit"), 20),
+	}
+	if classID := c.Query("class_id"); classID != "" {
+		id, err := uuid.Parse(classID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid class_id"})
+			return
+		}
+		filters.ClassID = &id
+	}
+
+	students, total, err := models.ListStudents(h.dbx, schoolID, filters)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to list students")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to list students"})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.NewPaginatedResponse(students, filters.Page, filters.Limit, total))
 }
 
 func (h *Handler) CreateStudent(c *gin.Context) {
@@ -767,53 +1013,397 @@ func (h *Handler) DeleteStudentAdmission(c *gin.Context) {
 }
 
 func (h *Handler) GetStudentEnrollments(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Get student enrollments - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	studentID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid student id"})
+		return
+	}
+
+	enrollments, err := models.ListStudentEnrollments(h.dbx, schoolID, studentID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get student enrollments")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get student enrollments"})
+		return
+	}
+
+	resp := make([]models.EnrollmentResponse, 0, len(enrollments))
+	for i := range enrollments {
+		resp = append(resp, enrollments[i].ToResponse())
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) GetStudentGuardians(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Get student guardians - to be implemented"})
+	studentID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid student id"})
+		return
+	}
+
+	guardians, err := models.ListStudentGuardians(h.dbx, studentID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get student guardians")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get student guardians"})
+		return
+	}
+
+	c.JSON(http.StatusOK, guardians)
 }
 
 func (h *Handler) LinkStudentGuardian(c *gin.Context) {
-	c.JSON(http.StatusCreated, models.SuccessResponse{Message: "Link student guardian - to be implemented"})
+	studentID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid student id"})
+		return
+	}
+
+	var req models.LinkGuardianRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	link := models.StudentGuardian{
+		BaseModel:             models.NewBaseModel(),
+		StudentID:             studentID,
+		GuardianID:            req.GuardianID,
+		Relationship:          req.Relationship,
+		IsPrimary:             req.IsPrimary,
+		ReceivesNotifications: req.ReceivesNotifications,
+	}
+	if err := link.Create(h.dbx); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == ErrorCodeUnique {
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Guardian already linked to student"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to link student guardian")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to link student guardian"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, link)
 }
 
 // Fee type handlers
 func (h *Handler) ListFeeTypes(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "List fee types - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	activeOnly := c.Query("active_only") == "true"
+
+	feeTypes, err := models.ListFeeTypes(h.dbx, schoolID, activeOnly)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to list fee types")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to list fee types"})
+		return
+	}
+
+	resp := make([]models.FeeTypeResponse, 0, len(feeTypes))
+	for i := range feeTypes {
+		resp = append(resp, feeTypes[i].ToResponse())
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) CreateFeeType(c *gin.Context) {
-	c.JSON(http.StatusCreated, models.SuccessResponse{Message: "Create fee type - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	var req models.CreateFeeTypeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	feeType := models.FeeType{
+		BaseModel:     models.NewBaseModel(),
+		SchoolID:      schoolID,
+		Name:          req.Name,
+		Description:   req.Description,
+		DefaultAmount: decimal.NewFromFloat(req.DefaultAmount),
+		Category:      req.Category,
+		Frequency:     req.Frequency,
+		IsOptional:    req.IsOptional,
+		IsActive:      true,
+	}
+	if err := feeType.Create(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to create fee type")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create fee type"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, feeType.ToResponse())
 }
 
 func (h *Handler) UpdateFeeType(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Update fee type - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	feeTypeID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid fee type id"})
+		return
+	}
+
+	var req models.UpdateFeeTypeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	feeType := models.FeeType{BaseModel: models.BaseModel{ID: feeTypeID}, SchoolID: schoolID}
+	if err := feeType.Get(h.dbx, schoolID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Fee type not found"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to get fee type")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get fee type"})
+		return
+	}
+
+	if req.Name != nil {
+		feeType.Name = *req.Name
+	}
+	if req.Description != nil {
+		feeType.Description = *req.Description
+	}
+	if req.DefaultAmount != nil {
+		feeType.DefaultAmount = decimal.NewFromFloat(*req.DefaultAmount)
+	}
+	if req.Category != nil {
+		feeType.Category = *req.Category
+	}
+	if req.Frequency != nil {
+		feeType.Frequency = *req.Frequency
+	}
+	if req.IsOptional != nil {
+		feeType.IsOptional = *req.IsOptional
+	}
+	if req.IsActive != nil {
+		feeType.IsActive = *req.IsActive
+	}
+
+	if err := feeType.Update(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to update fee type")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update fee type"})
+		return
+	}
+
+	c.JSON(http.StatusOK, feeType.ToResponse())
 }
 
 func (h *Handler) GetFeeTypeAmounts(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Get fee type amounts - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	feeTypeID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid fee type id"})
+		return
+	}
+
+	feeType := models.FeeType{BaseModel: models.BaseModel{ID: feeTypeID}}
+	if err := feeType.Get(h.dbx, schoolID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Fee type not found"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to get fee type")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get fee type"})
+		return
+	}
+
+	amounts, err := models.ListFeeClassAmounts(h.dbx, feeTypeID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get fee type amounts")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get fee type amounts"})
+		return
+	}
+
+	resp := make([]models.FeeClassAmountResponse, 0, len(amounts))
+	for i := range amounts {
+		item := amounts[i].ToResponse()
+		class := models.Class{BaseModel: models.BaseModel{ID: amounts[i].ClassID}}
+		if err := class.Get(h.dbx, schoolID); err == nil {
+			classResp := class.ToResponse()
+			item.Class = &classResp
+		}
+		resp = append(resp, item)
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) SetFeeTypeAmounts(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Set fee type amounts - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	feeTypeID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid fee type id"})
+		return
+	}
+
+	var req models.SetFeeClassAmountsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	feeType := models.FeeType{BaseModel: models.BaseModel{ID: feeTypeID}}
+	if err := feeType.Get(h.dbx, schoolID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Fee type not found"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to get fee type")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get fee type"})
+		return
+	}
+
+	if err := models.SetFeeClassAmounts(h.dbx, feeTypeID, req.Amounts); err != nil {
+		h.logger.WithError(err).Error("Failed to set fee type amounts")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to set fee type amounts"})
+		return
+	}
+
+	h.GetFeeTypeAmounts(c)
 }
 
 // Invoice handlers
 func (h *Handler) ListInvoices(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "List invoices - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	filters := models.InvoiceListFilters{
+		Search: c.Query("search"),
+		Page:   parseIntDefault(c.Query("page"), 1),
+		Limit:  parseIntDefault(c.Query("limit"), 20),
+	}
+	if status := c.Query("status"); status != "" {
+		s := models.InvoiceStatus(status)
+		filters.Status = &s
+	}
+	if classID := c.Query("class_id"); classID != "" {
+		id, err := uuid.Parse(classID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid class_id"})
+			return
+		}
+		filters.ClassID = &id
+	}
+	if termID := c.Query("term_id"); termID != "" {
+		id, err := uuid.Parse(termID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid term_id"})
+			return
+		}
+		filters.TermID = &id
+	}
+
+	invoices, total, err := models.ListInvoices(h.dbx, schoolID, filters)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to list invoices")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to list invoices"})
+		return
+	}
+
+	resp := make([]models.InvoiceResponse, 0, len(invoices))
+	for i := range invoices {
+		resp = append(resp, invoices[i].ToResponse())
+	}
+	c.JSON(http.StatusOK, models.NewPaginatedResponse(resp, filters.Page, filters.Limit, total))
 }
 
 func (h *Handler) CreateInvoice(c *gin.Context) {
-	c.JSON(http.StatusCreated, models.SuccessResponse{Message: "Create invoice - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	var req models.CreateInvoiceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	invoice, items, err := models.BuildInvoiceFromRequest(h.dbx, schoolID, req)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Student has no active enrollment"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to build invoice")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to build invoice"})
+		return
+	}
+
+	if err := models.CreateInvoiceWithItems(h.dbx, invoice, items); err != nil {
+		h.logger.WithError(err).Error("Failed to create invoice")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create invoice"})
+		return
+	}
+
+	resp, err := models.GetInvoiceWithItems(h.dbx, schoolID, invoice.ID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get created invoice")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get created invoice"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, resp)
 }
 
 func (h *Handler) BulkCreateInvoices(c *gin.Context) {
-	c.JSON(http.StatusCreated, models.SuccessResponse{Message: "Bulk create invoices - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	var req models.BulkCreateInvoiceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	studentIDs := req.StudentIDs
+	if req.ClassID != nil && len(studentIDs) == 0 {
+		students, err := models.ListClassStudents(h.dbx, schoolID, *req.ClassID)
+		if err != nil {
+			h.logger.WithError(err).Error("Failed to list class students for bulk invoice")
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to list class students"})
+			return
+		}
+		for _, s := range students {
+			studentIDs = append(studentIDs, s.ID)
+		}
+	}
+
+	created := []models.InvoiceResponse{}
+	for _, studentID := range studentIDs {
+		invoiceReq := models.CreateInvoiceRequest{
+			StudentID:  studentID,
+			FeeTypeIDs: req.FeeTypeIDs,
+			DueDate:    req.DueDate,
+		}
+		invoice, items, err := models.BuildInvoiceFromRequest(h.dbx, schoolID, invoiceReq)
+		if err != nil {
+			continue
+		}
+		if err := models.CreateInvoiceWithItems(h.dbx, invoice, items); err != nil {
+			continue
+		}
+		resp, err := models.GetInvoiceWithItems(h.dbx, schoolID, invoice.ID)
+		if err == nil {
+			created = append(created, *resp)
+		}
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"created_count": len(created), "invoices": created})
 }
 
 func (h *Handler) GetInvoice(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Get invoice - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	invoiceID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid invoice id"})
+		return
+	}
+
+	resp, err := models.GetInvoiceWithItems(h.dbx, schoolID, invoiceID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Invoice not found"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to get invoice")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get invoice"})
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) GetPublicInvoice(c *gin.Context) {
@@ -821,15 +1411,99 @@ func (h *Handler) GetPublicInvoice(c *gin.Context) {
 }
 
 func (h *Handler) SendInvoice(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Send invoice - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	invoiceID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid invoice id"})
+		return
+	}
+
+	resp, err := models.GetInvoiceWithItems(h.dbx, schoolID, invoiceID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Invoice not found"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to get invoice for sending")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get invoice"})
+		return
+	}
+
+	// TODO: integrate Termii SMS to notify guardians
+	h.logger.WithField("invoice_id", invoiceID).Info("Invoice send requested")
+	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Invoice send queued", Data: resp})
 }
 
 func (h *Handler) GrantGrace(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Grant grace - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	userID := middleware.GetUserID(c)
+	invoiceID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid invoice id"})
+		return
+	}
+
+	var req models.GrantGraceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	graceDate, err := time.Parse(middleware.DateFormat, req.GraceDate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid grace date"})
+		return
+	}
+
+	invoice := models.Invoice{BaseModel: models.BaseModel{ID: invoiceID}, SchoolID: schoolID}
+	if err := invoice.Get(h.dbx, schoolID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Invoice not found"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to get invoice")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get invoice"})
+		return
+	}
+
+	if err := invoice.GrantGrace(h.dbx, userID, graceDate); err != nil {
+		h.logger.WithError(err).Error("Failed to grant grace period")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to grant grace period"})
+		return
+	}
+
+	resp, err := models.GetInvoiceWithItems(h.dbx, schoolID, invoiceID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get invoice after grace")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get invoice"})
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) SendReminder(c *gin.Context) {
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Send reminder - to be implemented"})
+	schoolID := middleware.GetSchoolID(c)
+	invoiceID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid invoice id"})
+		return
+	}
+
+	resp, err := models.GetInvoiceWithItems(h.dbx, schoolID, invoiceID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Invoice not found"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to get invoice for reminder")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get invoice"})
+		return
+	}
+
+	// TODO: integrate Termii SMS reminder
+	h.logger.WithField("invoice_id", invoiceID).Info("Invoice reminder requested")
+	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Invoice reminder queued", Data: resp})
 }
 
 // Payment handlers

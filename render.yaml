@@ -1,0 +1,46 @@
+# Render Blueprint — live dev (staging)
+# Docs: https://render.com/docs/blueprint-spec
+#
+# External services (create these first, then paste URLs into Render env vars):
+#   - PostgreSQL: https://neon.tech  (free)
+#   - Redis:      https://upstash.com (free)
+#
+# After first deploy, set API_URL to your Render URL, e.g.
+#   https://school-invoice-api.onrender.com
+
+services:
+  - type: web
+    name: school-invoice-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ENV
+        value: staging
+      - key: RUN_MIGRATIONS
+        value: "true"
+      - key: PORT
+        value: "8080"
+      - key: JWT_EXPIRY_HOURS
+        value: "24"
+      - key: TERMII_SENDER_ID
+        value: SchoolInv
+      # --- set these in the Render dashboard (Dashboard → Environment) ---
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: PAYSTACK_PUBLIC_KEY
+        sync: false
+      - key: TERMII_API_KEY
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: API_URL
+        sync: false

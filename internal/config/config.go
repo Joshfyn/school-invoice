@@ -71,3 +71,12 @@ func (c *Config) IsDevelopment() bool {
 func (c *Config) IsProduction() bool {
 	return c.Env == "production"
 }
+
+func (c *Config) IsStaging() bool {
+	return c.Env == "staging"
+}
+
+// IsDeployed returns true for any non-local environment (staging, production).
+func (c *Config) IsDeployed() bool {
+	return c.IsProduction() || c.IsStaging()
+}

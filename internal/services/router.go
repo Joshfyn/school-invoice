@@ -25,6 +25,28 @@ func (svc *EducationService) SetupRouter() *gin.Engine {
 	return router
 }
 
+// RouteRegister wires protected routes onto a test router.
+type RouteRegister func(protected *gin.RouterGroup, h *handlers.Handler)
+
+// TestingRouter configures a minimal router for integration tests.
+// Callers provide auth/test middleware via injections and register only the routes under test.
+func (svc *EducationService) TestingRouter(injections []gin.HandlerFunc, register RouteRegister) *gin.Engine {
+	router := gin.New()
+	router.Use(middleware.AddLogger(svc.Log))
+	router.Use(gin.Recovery())
+
+	h := handlers.New(svc.DBX, svc.Redis, svc.Config, svc.Log)
+
+	api := router.Group("/api/v1")
+	protected := api.Group("")
+	protected.Use(injections...)
+	if register != nil {
+		register(protected, h)
+	}
+
+	return router
+}
+
 // setupRoutes configures all API routes
 func (svc *EducationService) setupRoutes(router *gin.Engine, h *handlers.Handler) {
 	// Health check

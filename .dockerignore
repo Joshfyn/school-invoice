@@ -1,0 +1,14 @@
+.git
+.github
+.cursor
+.env
+.env.*
+!.env.example
+bin/
+*.md
+docs/
+internal/services/*_test.go
+**/*_test.go
+.air.toml
+docker-compose.yml
+Dockerfile.worker

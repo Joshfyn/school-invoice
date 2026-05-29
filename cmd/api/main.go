@@ -29,7 +29,7 @@ func main() {
 	}
 
 	// Set log level based on environment
-	if cfg.IsProduction() {
+	if cfg.IsDeployed() {
 		log.SetLevel("info")
 		gin.SetMode(gin.ReleaseMode)
 	} else {
