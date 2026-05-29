@@ -177,3 +177,62 @@ func (s *Student) NINExists(dbx DBTX) (bool, error) {
 	}
 	return exists, nil
 }
+
+type StudentAdmission struct {
+	ID            uuid.UUID  `json:"id" db:"id"`
+	StudentID     uuid.UUID  `json:"student_id" db:"student_id"`
+	SchoolID      uuid.UUID  `json:"school_id" db:"school_id"`
+	AdmissionNo   string     `json:"admission_no" db:"admission_no"`
+	AdmissionDate time.Time  `json:"admission_date" db:"admission_date"`
+	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
+	DeletedAt     *time.Time `json:"deleted_at" db:"deleted_at"`
+}
+
+func (s *StudentAdmission) Create(dbx DBTX) error {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	rows, err := NamedQueryContext(dbx, ctx, `INSERT INTO student_admission (student_id, school_id, admission_no, admission_date)
+	 VALUES (:student_id, :school_id, :admission_no, :admission_date)
+	 RETURNING id, student_id, school_id, admission_no, admission_date, created_at, updated_at, deleted_at
+	`, s)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return errors.New("student admission not created")
+	}
+	if err := rows.StructScan(s); err != nil {
+		return err
+	}
+	for rows.Next() {
+		if err := rows.StructScan(s); err != nil {
+			return err
+		}
+	}
+	if rows.Err() != nil {
+		return rows.Err()
+	}
+	return nil
+}
+
+func (s *StudentAdmission) Delete(dbx DBTX) (bool, error) {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	_, err := dbx.ExecContext(ctx, "UPDATE student_admission SET deleted_at = $1 WHERE id = $2 AND school_id = $3", time.Now(), s.ID, s.SchoolID)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+/* func (s *StudentAdmission) Get(dbx DBTX) error {
+ctx, cancel := GetDBContext(dbx)
+defer cancel()
+
+err := dbx.QueryRowContext(ctx, "SELECT id, student_id, school_id, admission_no, admission_date, created_at, updated_at, deleted_at FROM student_admission WHERE id = $1", s.ID).
+	Scan(&s.ID, &s.StudentID, &s.SchoolID, &s.AdmissionNo, &s.AdmissionDate, &s.CreatedAt, &s.UpdatedAt, &s.DeletedAt) */

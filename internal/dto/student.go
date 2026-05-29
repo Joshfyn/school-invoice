@@ -32,3 +32,16 @@ type UpdateStudentRequest struct {
 type GetSingleStudentRequest struct {
 	StudentID uuid.UUID `json:"-"`
 }
+
+// CreateStudentAdmissionRequest is the request body for creating a student admission
+type CreateStudentAdmissionRequest struct {
+	SchoolID      uuid.UUID `json:"-"`
+	AdmissionNo   string    `json:"-"`
+	StudentID     uuid.UUID `json:"student_id" binding:"required"`
+	AdmissionDate string    `json:"admission_date" binding:"required"` // Format: YYYY-MM-DD
+}
+
+type DeleteStudentAdmissionRequest struct {
+	StudentID uuid.UUID `json:"-"`
+	SchoolID  uuid.UUID `json:"-"`
+}
