@@ -256,14 +256,15 @@ type StudentListFilters struct {
 }
 
 type StudentResponse struct {
-	ID          uuid.UUID  `json:"id"`
-	FirstName   string     `json:"first_name"`
-	MiddleName  string     `json:"middle_name"`
-	LastName    string     `json:"last_name"`
-	Gender      Gender     `json:"gender"`
-	DateOfBirth *time.Time `json:"date_of_birth"`
-	NIN         string     `json:"nin"`
-	AdmissionNo string     `json:"admission_no,omitempty"`
+	ID           uuid.UUID  `json:"id"`
+	FirstName    string     `json:"first_name"`
+	MiddleName   string     `json:"middle_name"`
+	LastName     string     `json:"last_name"`
+	Gender       Gender     `json:"gender"`
+	DateOfBirth  *time.Time `json:"date_of_birth"`
+	NIN          string     `json:"nin"`
+	AdmissionNo  string     `json:"admission_no,omitempty"`
+	CurrentClass string     `json:"current_class,omitempty"`
 }
 
 func ListStudents(dbx DBTX, schoolID uuid.UUID, filters StudentListFilters) ([]StudentResponse, int64, error) {
@@ -280,9 +281,10 @@ func ListStudents(dbx DBTX, schoolID uuid.UUID, filters StudentListFilters) ([]S
 
 	baseQuery := `
 		FROM students s
-		INNER JOIN student_admission sa ON sa.student_id = s.id AND sa.deleted_at IS NULL
+		LEFT JOIN student_admission sa ON sa.student_id = s.id AND sa.deleted_at IS NULL
 		LEFT JOIN student_enrollments e ON e.student_id = s.id AND e.status = 'active'
 		LEFT JOIN terms t ON t.id = e.term_id AND t.is_current = true
+		LEFT JOIN classes c ON c.id = e.class_id
 		WHERE sa.school_id = $1 AND s.deleted_at IS NULL
 	`
 	args := []interface{}{schoolID}
@@ -306,7 +308,8 @@ func ListStudents(dbx DBTX, schoolID uuid.UUID, filters StudentListFilters) ([]S
 	}
 
 	selectQuery := `
-		SELECT DISTINCT s.id, s.first_name, s.middle_name, s.last_name, s.gender, s.date_of_birth, s.nin, sa.admission_no
+		SELECT DISTINCT s.id, s.first_name, s.middle_name, s.last_name, s.gender, s.date_of_birth, s.nin, sa.admission_no,
+			CASE WHEN c.id IS NOT NULL THEN c.name || ' ' || c.section ELSE '' END AS current_class
 	` + baseQuery + fmt.Sprintf(`
 		ORDER BY s.last_name, s.first_name
 		LIMIT $%d OFFSET $%d
@@ -325,6 +328,7 @@ func ListStudents(dbx DBTX, schoolID uuid.UUID, filters StudentListFilters) ([]S
 		if err := rows.Scan(
 			&student.ID, &student.FirstName, &student.MiddleName, &student.LastName,
 			&student.Gender, &student.DateOfBirth, &student.NIN, &student.AdmissionNo,
+			&student.CurrentClass,
 		); err != nil {
 			return nil, 0, err
 		}

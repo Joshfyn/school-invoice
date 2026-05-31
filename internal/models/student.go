@@ -2,6 +2,8 @@ package models
 
 import (
 	"errors"
+	"fmt"
+	"hash/fnv"
 	"time"
 
 	"github.com/google/uuid"
@@ -176,6 +178,20 @@ func (s *Student) NINExists(dbx DBTX) (bool, error) {
 		return false, err
 	}
 	return exists, nil
+}
+
+// GenerateAdmissionNo returns a deterministic 11-digit admission number for a student at a school.
+func GenerateAdmissionNo(schoolID, studentID string) string {
+	input := fmt.Sprintf("%s|%s", schoolID, studentID)
+	h := fnv.New64a()
+	h.Write([]byte(input))
+	hashValue := h.Sum64()
+
+	const min11Digit = 10000000000
+	const max11Digit = 99999999999
+
+	finalID := (hashValue % (max11Digit - min11Digit + 1)) + min11Digit
+	return fmt.Sprintf("%d", finalID)
 }
 
 type StudentAdmission struct {

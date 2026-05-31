@@ -191,7 +191,22 @@ func (g *Guardian) PhoneExists(dbx DBTX) (bool, error) {
 	defer cancel()
 
 	exists := false
-	err := dbx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM guardians WHERE phone = $1)", g.Phone).Scan(&exists)
+	err := dbx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM guardians WHERE phone = $1 AND deleted_at IS NULL)", g.Phone).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func (g *Guardian) PhoneExistsForOther(dbx DBTX) (bool, error) {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	exists := false
+	err := dbx.QueryRowContext(ctx,
+		"SELECT EXISTS(SELECT 1 FROM guardians WHERE phone = $1 AND id != $2 AND deleted_at IS NULL)",
+		g.Phone, g.ID,
+	).Scan(&exists)
 	if err != nil {
 		return false, err
 	}
@@ -208,6 +223,99 @@ func (g *Guardian) EmailExists(dbx DBTX) (bool, error) {
 		return false, err
 	}
 	return exists, nil
+}
+
+func (g *Guardian) EmailExistsForOther(dbx DBTX) (bool, error) {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	exists := false
+	err := dbx.QueryRowContext(ctx,
+		"SELECT EXISTS(SELECT 1 FROM guardians WHERE email = $1 AND id != $2 AND email != '' AND deleted_at IS NULL)",
+		g.Email, g.ID,
+	).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+type GuardianStudentSummary struct {
+	ID           uuid.UUID    `json:"id"`
+	FirstName    string       `json:"first_name"`
+	LastName     string       `json:"last_name"`
+	Relationship Relationship `json:"relationship"`
+}
+
+type GuardianListItem struct {
+	Guardian
+	Students []GuardianStudentSummary `json:"students"`
+}
+
+func ListGuardiansForSchool(dbx DBTX, schoolID uuid.UUID) ([]GuardianListItem, error) {
+	guardians, err := (&Guardian{}).List(dbx, schoolID)
+	if err != nil {
+		return nil, err
+	}
+	if len(guardians) == 0 {
+		return []GuardianListItem{}, nil
+	}
+
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	rows, err := dbx.QueryxContext(ctx, `
+		SELECT sg.guardian_id, sg.relationship, s.id, s.first_name, s.last_name
+		FROM student_guardians sg
+		INNER JOIN students s ON s.id = sg.student_id
+		INNER JOIN student_admission sa ON sa.student_id = s.id AND sa.deleted_at IS NULL
+		WHERE sa.school_id = $1 AND s.deleted_at IS NULL
+		ORDER BY s.last_name, s.first_name
+	`, schoolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	studentsByGuardian := map[uuid.UUID][]GuardianStudentSummary{}
+	for rows.Next() {
+		var guardianID, studentID uuid.UUID
+		var relationship Relationship
+		var firstName, lastName string
+		if err := rows.Scan(&guardianID, &relationship, &studentID, &firstName, &lastName); err != nil {
+			return nil, err
+		}
+		studentsByGuardian[guardianID] = append(studentsByGuardian[guardianID], GuardianStudentSummary{
+			ID:           studentID,
+			FirstName:    firstName,
+			LastName:     lastName,
+			Relationship: relationship,
+		})
+	}
+
+	items := make([]GuardianListItem, 0, len(guardians))
+	for _, g := range guardians {
+		students := studentsByGuardian[g.ID]
+		if students == nil {
+			students = []GuardianStudentSummary{}
+		}
+		items = append(items, GuardianListItem{Guardian: g, Students: students})
+	}
+	return items, nil
+}
+
+func StudentAdmittedToSchool(dbx DBTX, schoolID, studentID uuid.UUID) (bool, error) {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	exists := false
+	err := dbx.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM student_admission
+			WHERE student_id = $1 AND school_id = $2 AND deleted_at IS NULL
+		)
+	`, studentID, schoolID).Scan(&exists)
+	return exists, err
 }
 
 type GuardianDetailResponse struct {

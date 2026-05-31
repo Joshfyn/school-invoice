@@ -405,6 +405,8 @@ func (h *Handler) CreateTerm(c *gin.Context) {
 		SessionID: req.SessionID,
 		Name:      req.Name,
 		SortOrder: req.SortOrder,
+		StartDate: &req.Start,
+		EndDate:   &req.End,
 		IsCurrent: &isCurrent,
 	}
 	if err := term.Create(h.dbx); err != nil {
@@ -677,7 +679,7 @@ func (h *Handler) UpdateEnrollmentStatus(c *gin.Context) {
 	enrollment := models.StudentEnrollment{
 		BaseModel: models.BaseModel{ID: enrollmentID},
 		SchoolID:  schoolID,
-		Status:   req.Status,
+		Status:    req.Status,
 	}
 	if err := enrollment.UpdateStatus(h.dbx); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -702,7 +704,7 @@ func (h *Handler) UpdateEnrollmentStatus(c *gin.Context) {
 func (h *Handler) ListGuardians(c *gin.Context) {
 	schoolID := middleware.GetSchoolID(c)
 
-	guardians, err := (&models.Guardian{}).List(h.dbx, schoolID)
+	guardians, err := models.ListGuardiansForSchool(h.dbx, schoolID)
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to list guardians")
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to list guardians"})
@@ -714,6 +716,19 @@ func (h *Handler) ListGuardians(c *gin.Context) {
 
 func (h *Handler) CreateGuardian(c *gin.Context) {
 	req := c.MustGet(middleware.ReqBodyCreateGuardian).(dto.CreateGuardianRequest)
+	schoolID := middleware.GetSchoolID(c)
+
+	admitted, err := models.StudentAdmittedToSchool(h.dbx, schoolID, req.StudentID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to verify student")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to verify student"})
+		return
+	}
+	if !admitted {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Student is not enrolled in this school"})
+		return
+	}
+
 	guardian := models.Guardian{
 		FirstName: req.FirstName,
 		LastName:  req.LastName,
@@ -722,7 +737,6 @@ func (h *Handler) CreateGuardian(c *gin.Context) {
 		Address:   req.Address,
 	}
 
-	// check if the guardian phone number already exists
 	exists, err := (&models.Guardian{Phone: req.Phone}).PhoneExists(h.dbx)
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to check guardian existence")
@@ -730,32 +744,63 @@ func (h *Handler) CreateGuardian(c *gin.Context) {
 		return
 	}
 	if exists {
-		c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Guardian already exists"})
+		c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Guardian with this phone number already exists"})
 		return
 	}
 
-	// check if the guardian email already exists
-	exists, err = (&models.Guardian{Email: req.Email}).EmailExists(h.dbx)
-	if err != nil {
-		h.logger.WithError(err).Error("Failed to check guardian existence")
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to check guardian existence"})
-		return
-	}
-	if exists {
-		c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Guardian already exists"})
-		return
+	if req.Email != "" {
+		exists, err = (&models.Guardian{Email: req.Email}).EmailExists(h.dbx)
+		if err != nil {
+			h.logger.WithError(err).Error("Failed to check guardian existence")
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to check guardian existence"})
+			return
+		}
+		if exists {
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Guardian with this email already exists"})
+			return
+		}
 	}
 
-	// TODO: send OTP to the guardian phone number
-	// TODO: send email to the guardian email address
-	// TODO: Once OTP is verified, confirm the guardian regisatration
+	tx := h.dbx.MustBegin()
+	defer tx.Rollback()
 
-	if err := guardian.Create(h.dbx); err != nil {
+	if err := guardian.Create(tx); err != nil {
 		h.logger.WithError(err).Error("Failed to create guardian")
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create guardian"})
 		return
 	}
-	c.JSON(http.StatusCreated, guardian)
+
+	link := models.StudentGuardian{
+		BaseModel:             models.NewBaseModel(),
+		StudentID:             req.StudentID,
+		GuardianID:            guardian.ID,
+		Relationship:          models.Relationship(req.Relationship),
+		IsPrimary:             req.IsPrimary,
+		ReceivesNotifications: req.ReceivesNotifications,
+	}
+	if err := link.Create(tx); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == ErrorCodeUnique {
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Guardian already linked to this student"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to link guardian to student")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to link guardian to student"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		h.logger.WithError(err).Error("Failed to commit guardian creation")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create guardian"})
+		return
+	}
+
+	detail, err := models.GetGuardianWithStudents(h.dbx, schoolID, guardian.ID)
+	if err != nil {
+		c.JSON(http.StatusCreated, guardian)
+		return
+	}
+	c.JSON(http.StatusCreated, detail)
 }
 
 func (h *Handler) GetGuardian(c *gin.Context) {
@@ -784,7 +829,8 @@ func (h *Handler) UpdateGuardian(c *gin.Context) {
 	req := c.MustGet(middleware.ReqBodyUpdateGuardian).(dto.UpdateGuardianRequest)
 
 	if req.Phone != "" {
-		if exists, err := (&models.Guardian{Phone: req.Phone}).PhoneExists(h.dbx); err != nil {
+		check := models.Guardian{ID: req.GuardianID, Phone: req.Phone}
+		if exists, err := check.PhoneExistsForOther(h.dbx); err != nil {
 			h.logger.WithError(err).Error("Failed to check guardian existence")
 			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to check guardian existence"})
 			return
@@ -795,7 +841,8 @@ func (h *Handler) UpdateGuardian(c *gin.Context) {
 	}
 
 	if req.Email != "" {
-		if exists, err := (&models.Guardian{Email: req.Email}).EmailExists(h.dbx); err != nil {
+		check := models.Guardian{ID: req.GuardianID, Email: req.Email}
+		if exists, err := check.EmailExistsForOther(h.dbx); err != nil {
 			h.logger.WithError(err).Error("Failed to check guardian existence")
 			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to check guardian existence"})
 			return
@@ -872,6 +919,7 @@ func (h *Handler) ListStudents(c *gin.Context) {
 
 func (h *Handler) CreateStudent(c *gin.Context) {
 	req := c.MustGet(middleware.ReqBodyCreateStudent).(dto.CreateStudentRequest)
+	schoolID := middleware.GetSchoolID(c)
 	student := models.Student{
 		FirstName:   req.FirstName,
 		MiddleName:  req.MiddleName,
@@ -892,7 +940,10 @@ func (h *Handler) CreateStudent(c *gin.Context) {
 		return
 	}
 
-	if err := student.Create(h.dbx); err != nil {
+	tx := h.dbx.MustBegin()
+	defer tx.Rollback()
+
+	if err := student.Create(tx); err != nil {
 		h.logger.
 			WithError(err).
 			WithField("first_name", req.FirstName).
@@ -902,7 +953,37 @@ func (h *Handler) CreateStudent(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create student"})
 		return
 	}
-	c.JSON(http.StatusCreated, student)
+
+	admission := models.StudentAdmission{
+		StudentID:     student.ID,
+		SchoolID:      schoolID,
+		AdmissionNo:   models.GenerateAdmissionNo(schoolID.String(), student.ID.String()),
+		AdmissionDate: time.Now().UTC(),
+	}
+	if err := admission.Create(tx); err != nil {
+		h.logger.WithError(err).WithField("student_id", student.ID).Error("Failed to create student admission")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create student admission"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		h.logger.WithError(err).Error("Failed to commit student creation")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create student"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"id":            student.ID,
+		"first_name":    student.FirstName,
+		"middle_name":   student.MiddleName,
+		"last_name":     student.LastName,
+		"gender":        student.Gender,
+		"date_of_birth": student.DateOfBirth,
+		"nin":           student.NIN,
+		"admission_no":  admission.AdmissionNo,
+		"created_at":    student.CreatedAt,
+		"updated_at":    student.UpdatedAt,
+	})
 }
 
 func (h *Handler) BulkCreateStudents(c *gin.Context) {

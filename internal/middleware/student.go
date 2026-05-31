@@ -1,8 +1,6 @@
 package middleware
 
 import (
-	"fmt"
-	"hash/fnv"
 	"net/http"
 	"time"
 
@@ -10,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/school-invoice/backend/internal/dto"
 	"github.com/school-invoice/backend/internal/logger"
+	"github.com/school-invoice/backend/internal/models"
 )
 
 func ValidateCreateStudentRequest(c *gin.Context) {
@@ -91,7 +90,7 @@ func ValidateCreateStudentAdmissionRequest(c *gin.Context) {
 	}
 	req.AdmissionDate = admissionDate.Format(DateFormat)
 
-	req.AdmissionNo = generate11DigitAdmissionNo(req.SchoolID.String(), req.StudentID.String())
+	req.AdmissionNo = models.GenerateAdmissionNo(req.SchoolID.String(), req.StudentID.String())
 
 	c.Set(ReqBodyCreateStudentAdmission, req)
 	c.Next()
@@ -111,24 +110,4 @@ func ValidateDeleteStudentAdmissionRequest(c *gin.Context) {
 	req.SchoolID = GetSchoolID(c)
 	c.Set(ReqBodyDeleteStudentAdmission, req)
 	c.Next()
-}
-
-func generate11DigitAdmissionNo(schoolID string, studentID string) string {
-	// 1. Combine inputs into a unique string
-	// Using separators (|) prevents "John" + "Smith" from clashing with "Joh" + "nSmith"
-	input := fmt.Sprintf("%s|%s", schoolID, studentID)
-
-	// 2. Create a new FNV-1a 64-bit hash
-	h := fnv.New64a()
-	h.Write([]byte(input))
-	hashValue := h.Sum64()
-
-	// 3. Map to 11 digits (Range: 10,000,000,000 to 99,999,999,999)
-	// We use 90 billion as the range and add 10 billion to ensure it's always 11 digits
-	const min11Digit = 10000000000
-	const max11Digit = 99999999999
-
-	finalID := (hashValue % (max11Digit - min11Digit + 1)) + min11Digit
-
-	return fmt.Sprintf("%d", finalID)
 }
