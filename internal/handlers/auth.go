@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -197,11 +198,20 @@ func (h *Handler) Register(c *gin.Context) {
 	}
 
 	// Generate JWT token
+	roleResp := (&models.Role{
+		BaseModel:    models.BaseModel{ID: roleID},
+		SchoolID:     schoolID,
+		Name:         "Super Admin",
+		IsSuperAdmin: true,
+		Permissions:  models.GetSuperAdminPermissions(),
+	}).ToResponse()
+
 	token, err := h.generateToken(TokenClaimsRequirement{
-		UserID:   userID,
-		SchoolID: schoolID,
-		RoleID:   roleID,
-		Email:    regReq.AdminEmail,
+		UserID:       userID,
+		SchoolID:     schoolID,
+		RoleID:       roleID,
+		Email:        regReq.AdminEmail,
+		IsSuperAdmin: true,
 	})
 	if err != nil {
 		h.logger.
@@ -239,8 +249,51 @@ func (h *Handler) Register(c *gin.Context) {
 			LastName:  regReq.AdminLastName,
 			Phone:     regReq.AdminPhone,
 			IsActive:  true,
+			Role:      &roleResp,
 		},
 		Token: token,
+	})
+}
+
+// GetMe returns the currently authenticated user and role.
+func (h *Handler) GetMe(c *gin.Context) {
+	uid := middleware.GetUserID(c)
+	schoolID := middleware.GetSchoolID(c)
+	role := middleware.GetRole(c)
+
+	userWithRole, err := (&models.User{BaseModel: models.BaseModel{ID: uid}}).GetUser(h.dbx)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "user_not_found", Message: "User not found"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to get current user")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "server_error", Message: "Failed to get user"})
+		return
+	}
+
+	if userWithRole.User.SchoolID != schoolID {
+		c.JSON(http.StatusForbidden, models.ErrorResponse{Error: "forbidden", Message: "Access denied"})
+		return
+	}
+
+	var roleResp *models.RoleResponse
+	if role != nil {
+		r := role.ToResponse()
+		roleResp = &r
+	}
+
+	isActive := userWithRole.User.IsActive != nil && *userWithRole.User.IsActive
+	c.JSON(http.StatusOK, dto.UserResponse{
+		ID:        userWithRole.User.ID,
+		SchoolID:  userWithRole.User.SchoolID,
+		RoleID:    userWithRole.User.RoleID,
+		Email:     userWithRole.User.Email,
+		FirstName: userWithRole.User.FirstName,
+		LastName:  userWithRole.User.LastName,
+		Phone:     userWithRole.User.Phone,
+		IsActive:  isActive,
+		Role:      roleResp,
 	})
 }
 
@@ -337,6 +390,7 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
+	roleResp := userAndRole.Role.ToResponse()
 	c.JSON(http.StatusOK, dto.LoginResponse{
 		User: dto.UserResponse{
 			ID:        userAndRole.User.ID,
@@ -347,6 +401,7 @@ func (h *Handler) Login(c *gin.Context) {
 			LastName:  userAndRole.User.LastName,
 			Phone:     userAndRole.User.Phone,
 			IsActive:  userAndRole.User.IsActive == nil || *userAndRole.User.IsActive,
+			Role:      &roleResp,
 		},
 		Token: token,
 	})
