@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"strings"
@@ -23,8 +24,14 @@ const (
 	ContextKeyUser         = "user"
 )
 
-// Auth middleware validates JWT token and sets user context
-func Auth(jwtSecret string, redis *database.Redis) gin.HandlerFunc {
+// PermissionCheck pairs a resource with an action for RequireAnyPermission.
+type PermissionCheck struct {
+	Resource string
+	Action   string
+}
+
+// Auth middleware validates JWT token, loads the user's role, and sets context.
+func Auth(jwtSecret string, redis *database.Redis, dbx models.DBTX) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -36,7 +43,6 @@ func Auth(jwtSecret string, redis *database.Redis) gin.HandlerFunc {
 			return
 		}
 
-		// Extract token from "Bearer <token>"
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse{
@@ -48,9 +54,8 @@ func Auth(jwtSecret string, redis *database.Redis) gin.HandlerFunc {
 		}
 
 		tokenString := parts[1]
-		// check if token is in redis
 		tokenUserID, err := redis.Get(context.Background(), tokenString)
-		if err != nil {
+		if err != nil || tokenUserID == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse{
 				Error:   "unauthorized",
 				Message: "Invalid or expired token",
@@ -59,16 +64,6 @@ func Auth(jwtSecret string, redis *database.Redis) gin.HandlerFunc {
 			return
 		}
 
-		if tokenUserID == "" {
-			c.JSON(http.StatusUnauthorized, models.ErrorResponse{
-				Error:   "unauthorized",
-				Message: "Invalid or expired token",
-			})
-			c.Abort()
-			return
-		}
-
-		// Parse and validate token
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, errors.New("unexpected signing method")
@@ -85,7 +80,6 @@ func Auth(jwtSecret string, redis *database.Redis) gin.HandlerFunc {
 			return
 		}
 
-		// Extract claims
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse{
@@ -96,7 +90,6 @@ func Auth(jwtSecret string, redis *database.Redis) gin.HandlerFunc {
 			return
 		}
 
-		// Set user info in context
 		userID, _ := uuid.Parse(claims["user_id"].(string))
 		if tokenUserID != userID.String() {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse{
@@ -107,19 +100,60 @@ func Auth(jwtSecret string, redis *database.Redis) gin.HandlerFunc {
 			return
 		}
 
-		schoolID, _ := uuid.Parse(claims["school_id"].(string))
-		roleID, _ := uuid.Parse(claims["role_id"].(string))
-		isSuperAdmin := claims["is_super_admin"].(bool)
+		schoolIDStr, ok := claims["school_id"].(string)
+		roleIDStr, okRole := claims["role_id"].(string)
+		if !ok || !okRole {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse{
+				Error:   "unauthorized",
+				Message: "Invalid token claims",
+			})
+			c.Abort()
+			return
+		}
+		schoolID, err := uuid.Parse(schoolIDStr)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse{Error: "unauthorized", Message: "Invalid token claims"})
+			c.Abort()
+			return
+		}
+		roleID, err := uuid.Parse(roleIDStr)
+		if err != nil || roleID == uuid.Nil {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse{
+				Error:   "unauthorized",
+				Message: "Invalid role in token — please log in again",
+			})
+			c.Abort()
+			return
+		}
+		isSuperAdmin, _ := claims["is_super_admin"].(bool)
+
+		role, err := models.GetRole(dbx, schoolID, roleID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				c.JSON(http.StatusForbidden, models.ErrorResponse{
+					Error:   "forbidden",
+					Message: "Role not found or access denied",
+				})
+				c.Abort()
+				return
+			}
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+				Error:   "server_error",
+				Message: "Failed to load user role",
+			})
+			c.Abort()
+			return
+		}
 
 		c.Set(ContextKeyUserID, userID)
 		c.Set(ContextKeySchoolID, schoolID)
 		c.Set(ContextKeyRoleID, roleID)
-		c.Set(ContextKeyIsSuperAdmin, isSuperAdmin)
+		c.Set(ContextKeyIsSuperAdmin, isSuperAdmin || role.IsSuperAdmin)
+		SetRole(c, role)
 		c.Next()
 	}
 }
 
-// GetUserID retrieves user ID from context
 func GetUserID(c *gin.Context) uuid.UUID {
 	if id, exists := c.Get(ContextKeyUserID); exists {
 		return id.(uuid.UUID)
@@ -127,7 +161,6 @@ func GetUserID(c *gin.Context) uuid.UUID {
 	return uuid.Nil
 }
 
-// GetSchoolID retrieves school ID from context
 func GetSchoolID(c *gin.Context) uuid.UUID {
 	if id, exists := c.Get(ContextKeySchoolID); exists {
 		return id.(uuid.UUID)
@@ -135,7 +168,6 @@ func GetSchoolID(c *gin.Context) uuid.UUID {
 	return uuid.Nil
 }
 
-// GetRoleID retrieves role ID from context
 func GetRoleID(c *gin.Context) uuid.UUID {
 	if id, exists := c.Get(ContextKeyRoleID); exists {
 		return id.(uuid.UUID)
@@ -143,7 +175,6 @@ func GetRoleID(c *gin.Context) uuid.UUID {
 	return uuid.Nil
 }
 
-// GetIsSuperAdmin retrieves is super admin from context
 func GetIsSuperAdmin(c *gin.Context) bool {
 	if isSuperAdmin, exists := c.Get(ContextKeyIsSuperAdmin); exists {
 		return isSuperAdmin.(bool)
@@ -151,7 +182,6 @@ func GetIsSuperAdmin(c *gin.Context) bool {
 	return false
 }
 
-// GetRole retrieves role from context
 func GetRole(c *gin.Context) *models.Role {
 	if role, exists := c.Get(ContextKeyRole); exists {
 		return role.(*models.Role)
@@ -159,19 +189,19 @@ func GetRole(c *gin.Context) *models.Role {
 	return nil
 }
 
-// SetRole sets role in context (called after loading role from DB)
 func SetRole(c *gin.Context, role *models.Role) {
 	c.Set(ContextKeyRole, role)
 }
 
-// RequirePermission middleware checks if user has required permission
 func RequirePermission(resource, action string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role := GetRole(c)
 		if role == nil {
-			// Role not loaded yet, permission check will be done in handler
-			// For now, allow pass-through (handler should load role and check)
-			c.Next()
+			c.JSON(http.StatusForbidden, models.ErrorResponse{
+				Error:   "forbidden",
+				Message: "You don't have permission to perform this action",
+			})
+			c.Abort()
 			return
 		}
 
@@ -185,5 +215,32 @@ func RequirePermission(resource, action string) gin.HandlerFunc {
 		}
 
 		c.Next()
+	}
+}
+
+func RequireAnyPermission(checks ...PermissionCheck) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role := GetRole(c)
+		if role == nil {
+			c.JSON(http.StatusForbidden, models.ErrorResponse{
+				Error:   "forbidden",
+				Message: "You don't have permission to perform this action",
+			})
+			c.Abort()
+			return
+		}
+
+		for _, check := range checks {
+			if role.HasPermission(check.Resource, check.Action) {
+				c.Next()
+				return
+			}
+		}
+
+		c.JSON(http.StatusForbidden, models.ErrorResponse{
+			Error:   "forbidden",
+			Message: "You don't have permission to perform this action",
+		})
+		c.Abort()
 	}
 }

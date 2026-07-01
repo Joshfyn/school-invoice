@@ -72,11 +72,19 @@ func (u *User) FindByEmail(dbx DBTX) (UserAndRole, error) {
 
 	userAndRole := UserAndRole{}
 	err := dbx.QueryRowContext(ctx, `
-		SELECT u.id, u.school_id, u.role_id, u.email, u.password_hash, u.first_name, u.last_name, u.phone, u.is_active, r.is_super_admin
+		SELECT
+			u.id, u.school_id, u.role_id, u.email, u.password_hash, u.first_name, u.last_name, u.phone, u.is_active,
+			r.id, r.school_id, r.name, r.description, r.permissions, r.is_super_admin, r.created_at, r.updated_at
 		FROM users u
 		JOIN roles r ON u.role_id = r.id
-		WHERE u.email = $1
-	`, u.Email).Scan(&userAndRole.User.ID, &userAndRole.User.SchoolID, &userAndRole.User.RoleID, &userAndRole.User.Email, &userAndRole.User.PasswordHash, &userAndRole.User.FirstName, &userAndRole.User.LastName, &userAndRole.User.Phone, &userAndRole.User.IsActive, &userAndRole.Role.IsSuperAdmin)
+		WHERE u.email = $1 AND r.deleted_at IS NULL
+	`, u.Email).Scan(
+		&userAndRole.User.ID, &userAndRole.User.SchoolID, &userAndRole.User.RoleID,
+		&userAndRole.User.Email, &userAndRole.User.PasswordHash, &userAndRole.User.FirstName, &userAndRole.User.LastName,
+		&userAndRole.User.Phone, &userAndRole.User.IsActive,
+		&userAndRole.Role.ID, &userAndRole.Role.SchoolID, &userAndRole.Role.Name, &userAndRole.Role.Description,
+		&userAndRole.Role.Permissions, &userAndRole.Role.IsSuperAdmin, &userAndRole.Role.CreatedAt, &userAndRole.Role.UpdatedAt,
+	)
 	return userAndRole, err
 }
 

@@ -20,6 +20,8 @@ func ValidateCreateGuardianRequest(c *gin.Context) {
 		return
 	}
 
+	req.Phone = FormatPhoneE164(req.Phone)
+
 	// TODO: Validate NIN format against Nigerian NIN format and against Nigerian agency
 
 	c.Set(ReqBodyCreateGuardian, req)
@@ -44,6 +46,9 @@ func ValidateUpdateGuardianRequest(c *gin.Context) {
 		return
 	}
 	req.GuardianID = uuid.MustParse(guardianID)
+	if req.Phone != "" {
+		req.Phone = FormatPhoneE164(req.Phone)
+	}
 	c.Set(ReqBodyUpdateGuardian, req)
 	c.Next()
 }

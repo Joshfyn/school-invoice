@@ -41,45 +41,59 @@ func ValidateCreateTermRequest(c *gin.Context) {
 		return
 	}
 
-	if req.StartDate != "" {
-		var err error
-		req.Start, err = time.Parse(DateFormat, req.StartDate)
-		if err != nil {
-			logger.
-				WithError(err).
-				WithField("user_id", req.UserID).
-				WithField("school_id", req.SchoolID).
-				WithField("session_id", req.SessionID).
-				Error("Invalid start date")
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid start date"})
-			return
-		}
+	if req.StartDate == "" {
+		logger.
+			WithField("user_id", req.UserID).
+			WithField("school_id", req.SchoolID).
+			Error("Start date is required")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Start date is required"})
+		return
 	}
-	if req.EndDate != "" {
-		var err error
-		req.End, err = time.Parse(DateFormat, req.EndDate)
-		if err != nil {
-			logger.
-				WithError(err).
-				WithField("user_id", req.UserID).
-				WithField("school_id", req.SchoolID).
-				WithField("session_id", req.SessionID).
-				Error("Invalid end date")
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid end date"})
-			return
-		}
+	if req.EndDate == "" {
+		logger.
+			WithField("user_id", req.UserID).
+			WithField("school_id", req.SchoolID).
+			Error("End date is required")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "End date is required"})
+		return
 	}
-	if req.Start.After(req.End) {
+
+	startDate, err := time.Parse(DateFormat, req.StartDate)
+	if err != nil {
+		logger.
+			WithError(err).
+			WithField("user_id", req.UserID).
+			WithField("school_id", req.SchoolID).
+			WithField("session_id", req.SessionID).
+			Error("Invalid start date")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid start date"})
+		return
+	}
+	endDate, err := time.Parse(DateFormat, req.EndDate)
+	if err != nil {
+		logger.
+			WithError(err).
+			WithField("user_id", req.UserID).
+			WithField("school_id", req.SchoolID).
+			WithField("session_id", req.SessionID).
+			Error("Invalid end date")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid end date"})
+		return
+	}
+	if startDate.After(endDate) {
 		logger.
 			WithField("user_id", req.UserID).
 			WithField("school_id", req.SchoolID).
 			WithField("session_id", req.SessionID).
-			WithField("start_date", req.Start).
-			WithField("end_date", req.End).
+			WithField("start_date", startDate).
+			WithField("end_date", endDate).
 			Error("Start date must be before end date")
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Start date must be before end date"})
 		return
 	}
+	req.Start = startDate
+	req.End = endDate
+
 	c.Set(ReqBodyCreateTerm, req)
 	c.Next()
 
