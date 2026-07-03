@@ -125,6 +125,15 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
+	if err := models.SeedFeeCategories(tx, schoolID); err != nil {
+		h.logger.WithError(err).WithField("school_id", schoolID).Error("Failed to seed fee categories")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Error:   "database_error",
+			Message: "Failed to initialize school settings",
+		})
+		return
+	}
+
 	// Create super admin role
 	roleID := uuid.New()
 	permissions := models.GetSuperAdminPermissions()

@@ -228,15 +228,22 @@ func (t *Term) Update(dbx DBTX) error {
 		args = append(args, t.EndDate)
 		argIndex++
 	}
+	if t.IsCurrent != nil {
+		query += ", is_current = $" + string(rune('0'+argIndex))
+		args = append(args, *t.IsCurrent)
+		argIndex++
+	}
 	query += " WHERE id = $" + string(rune('0'+argIndex))
 	args = append(args, t.ID)
 	argIndex++
 	query += " AND school_id = $" + string(rune('0'+argIndex))
 	args = append(args, t.SchoolID)
 	argIndex++
-	query += " AND session_id = $" + string(rune('0'+argIndex))
-	args = append(args, t.SessionID)
-	argIndex++
+	if t.SessionID != uuid.Nil {
+		query += " AND session_id = $" + string(rune('0'+argIndex))
+		args = append(args, t.SessionID)
+		argIndex++
+	}
 	_, err := dbx.ExecContext(ctx, query, args...)
 	return err
 }
@@ -263,6 +270,18 @@ func (t *Term) List(dbx DBTX) ([]Term, error) {
 		terms = append(terms, term)
 	}
 	return terms, nil
+}
+
+// ClearCurrentTerm unsets is_current on all terms for a school (before marking a new current term).
+func ClearCurrentTerm(dbx DBTX, schoolID uuid.UUID) error {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	_, err := dbx.ExecContext(ctx, `
+		UPDATE terms SET is_current = false, updated_at = $1
+		WHERE school_id = $2 AND is_current = true
+	`, time.Now().UTC(), schoolID)
+	return err
 }
 
 type ClassName string

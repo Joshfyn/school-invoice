@@ -230,8 +230,16 @@ func (svc *EducationService) setupFeeTypeRoutes(protected *gin.RouterGroup, h *h
 		feeTypes.GET("", middleware.RequirePermission("fee_types", "read"), h.ListFeeTypes)
 		feeTypes.POST("", middleware.RequirePermission("fee_types", "create"), h.CreateFeeType)
 		feeTypes.PUT("/:id", middleware.RequirePermission("fee_types", "update"), h.UpdateFeeType)
+		feeTypes.DELETE("/:id", middleware.RequirePermission("fee_types", "delete"), h.DeleteFeeType)
 		feeTypes.GET("/:id/amounts", middleware.RequirePermission("fee_types", "read"), h.GetFeeTypeAmounts)
 		feeTypes.PUT("/:id/amounts", middleware.RequirePermission("fee_types", "set_amounts"), h.SetFeeTypeAmounts)
+	}
+
+	feeCategories := protected.Group("/fee-categories")
+	{
+		feeCategories.GET("", middleware.RequirePermission("fee_types", "read"), h.ListFeeCategories)
+		feeCategories.POST("", middleware.RequirePermission("settings", "manage"), h.CreateFeeCategory)
+		feeCategories.DELETE("/:id", middleware.RequirePermission("settings", "manage"), h.DeleteFeeCategory)
 	}
 }
 
@@ -243,6 +251,8 @@ func (svc *EducationService) setupInvoiceRoutes(protected *gin.RouterGroup, h *h
 		invoices.POST("", middleware.RequirePermission("invoices", "create"), h.CreateInvoice)
 		invoices.POST("/bulk", middleware.RequirePermission("invoices", "bulk_create"), h.BulkCreateInvoices)
 		invoices.GET("/:id", middleware.RequirePermission("invoices", "read"), h.GetInvoice)
+		invoices.PUT("/:id/status", middleware.RequireSuperAdmin(), h.UpdateInvoiceStatus)
+		invoices.DELETE("/:id", middleware.RequireSuperAdmin(), h.DeleteInvoice)
 		invoices.POST("/:id/send", middleware.RequirePermission("invoices", "send"), h.SendInvoice)
 		invoices.POST("/:id/grace", middleware.RequirePermission("invoices", "grant_grace"), h.GrantGrace)
 		invoices.POST("/:id/remind", middleware.RequirePermission("invoices", "send"), h.SendReminder)

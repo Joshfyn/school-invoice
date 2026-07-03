@@ -5,13 +5,16 @@ import "time"
 // School represents a school (tenant) in the system
 type School struct {
 	BaseModel
-	Name      string  `json:"name" db:"name"`
-	Subdomain string  `json:"subdomain" db:"subdomain"`
-	Phone     string  `json:"phone" db:"phone"`
-	Email     string  `json:"email" db:"email"`
-	Address   string  `json:"address" db:"address"`
-	LogoURL   *string `json:"logo_url,omitempty" db:"logo_url"`
-	IsActive  bool    `json:"is_active" db:"is_active"`
+	Name              string  `json:"name" db:"name"`
+	Subdomain         string  `json:"subdomain" db:"subdomain"`
+	Phone             string  `json:"phone" db:"phone"`
+	Email             string  `json:"email" db:"email"`
+	Address           string  `json:"address" db:"address"`
+	LogoURL           *string `json:"logo_url,omitempty" db:"logo_url"`
+	BankName          *string `json:"bank_name,omitempty" db:"bank_name"`
+	BankAccountName   *string `json:"bank_account_name,omitempty" db:"bank_account_name"`
+	BankAccountNumber *string `json:"bank_account_number,omitempty" db:"bank_account_number"`
+	IsActive          bool    `json:"is_active" db:"is_active"`
 }
 
 func (s *School) Create(dbx DBTX) error {
@@ -31,9 +34,11 @@ func (s *School) GetProfile(dbx DBTX) error {
 	defer cancel()
 
 	err := dbx.QueryRowContext(ctx, `
-		SELECT id, name, subdomain, phone, email, address, logo_url, is_active, created_at, updated_at
+		SELECT id, name, subdomain, phone, email, address, logo_url,
+		       bank_name, bank_account_name, bank_account_number, is_active, created_at, updated_at
 		FROM schools WHERE id = $1
-	`, s.ID).Scan(&s.ID, &s.Name, &s.Subdomain, &s.Phone, &s.Email, &s.Address, &s.LogoURL, &s.IsActive, &s.CreatedAt, &s.UpdatedAt)
+	`, s.ID).Scan(&s.ID, &s.Name, &s.Subdomain, &s.Phone, &s.Email, &s.Address, &s.LogoURL,
+		&s.BankName, &s.BankAccountName, &s.BankAccountNumber, &s.IsActive, &s.CreatedAt, &s.UpdatedAt)
 	return err
 }
 
@@ -70,6 +75,21 @@ func (s *School) Update(dbx DBTX) error {
 	if s.LogoURL != nil {
 		query += ", logo_url = $" + string(rune('0'+argIndex))
 		args = append(args, s.LogoURL)
+		argIndex++
+	}
+	if s.BankName != nil {
+		query += ", bank_name = $" + string(rune('0'+argIndex))
+		args = append(args, s.BankName)
+		argIndex++
+	}
+	if s.BankAccountName != nil {
+		query += ", bank_account_name = $" + string(rune('0'+argIndex))
+		args = append(args, s.BankAccountName)
+		argIndex++
+	}
+	if s.BankAccountNumber != nil {
+		query += ", bank_account_number = $" + string(rune('0'+argIndex))
+		args = append(args, s.BankAccountNumber)
 		argIndex++
 	}
 

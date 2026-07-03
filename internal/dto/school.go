@@ -13,22 +13,28 @@ type CreateSchoolRequest struct {
 
 // UpdateSchoolRequest is the request body for updating a school
 type UpdateSchoolRequest struct {
-	Name    *string `json:"name,omitempty" binding:"omitempty,min=2,max=255"`
-	Phone   *string `json:"phone,omitempty"`
-	Email   *string `json:"email,omitempty" binding:"omitempty,email"`
-	Address *string `json:"address,omitempty"`
-	LogoURL *string `json:"logo_url,omitempty"`
+	Name              *string `json:"name,omitempty" binding:"omitempty,min=2,max=255"`
+	Phone             *string `json:"phone,omitempty"`
+	Email             *string `json:"email,omitempty" binding:"omitempty,email"`
+	Address           *string `json:"address,omitempty"`
+	LogoURL           *string `json:"logo_url,omitempty"`
+	BankName          *string `json:"bank_name,omitempty"`
+	BankAccountName   *string `json:"bank_account_name,omitempty"`
+	BankAccountNumber *string `json:"bank_account_number,omitempty"`
 }
 
 // SchoolResponse is the response for school data
 type SchoolResponse struct {
-	ID        uuid.UUID `json:"id"`
-	Name      string    `json:"name"`
-	Subdomain string    `json:"subdomain"`
-	Phone     string    `json:"phone"`
-	Email     string    `json:"email"`
-	Address   string    `json:"address"`
-	LogoURL   *string   `json:"logo_url,omitempty"`
-	IsActive  bool      `json:"is_active"`
+	ID                uuid.UUID `json:"id"`
+	Name              string    `json:"name"`
+	Subdomain         string    `json:"subdomain"`
+	Phone             string    `json:"phone"`
+	Email             string    `json:"email"`
+	Address           string    `json:"address"`
+	LogoURL           *string   `json:"logo_url,omitempty"`
+	BankName          *string   `json:"bank_name,omitempty"`
+	BankAccountName   *string   `json:"bank_account_name,omitempty"`
+	BankAccountNumber *string   `json:"bank_account_number,omitempty"`
+	IsActive          bool      `json:"is_active"`
 }
 

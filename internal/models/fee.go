@@ -46,7 +46,7 @@ type CreateFeeTypeRequest struct {
 	Name          string       `json:"name" binding:"required,min=2"`
 	Description   string       `json:"description"`
 	DefaultAmount float64      `json:"default_amount" binding:"required,gt=0"`
-	Category      FeeCategory  `json:"category" binding:"required,oneof=academic uniform materials extra_curricular other"`
+	Category      FeeCategory  `json:"category" binding:"required"`
 	Frequency     FeeFrequency `json:"frequency" binding:"required,oneof=per_term per_session one_time"`
 	IsOptional    bool         `json:"is_optional"`
 }
@@ -56,7 +56,7 @@ type UpdateFeeTypeRequest struct {
 	Name          *string       `json:"name,omitempty" binding:"omitempty,min=2"`
 	Description   *string       `json:"description,omitempty"`
 	DefaultAmount *float64      `json:"default_amount,omitempty" binding:"omitempty,gt=0"`
-	Category      *FeeCategory  `json:"category,omitempty" binding:"omitempty,oneof=academic uniform materials extra_curricular other"`
+	Category      *FeeCategory  `json:"category,omitempty"`
 	Frequency     *FeeFrequency `json:"frequency,omitempty" binding:"omitempty,oneof=per_term per_session one_time"`
 	IsOptional    *bool         `json:"is_optional,omitempty"`
 	IsActive      *bool         `json:"is_active,omitempty"`
@@ -173,6 +173,29 @@ func (f *FeeType) Update(dbx DBTX) error {
 		    is_optional = $6, is_active = $7, updated_at = $8
 		WHERE id = $9 AND school_id = $10
 	`, f.Name, f.Description, f.DefaultAmount, f.Category, f.Frequency, f.IsOptional, f.IsActive, time.Now().UTC(), f.ID, f.SchoolID)
+	return err
+}
+
+var ErrFeeTypeInUse = errors.New("fee type is referenced by invoices and cannot be deleted")
+
+func (f *FeeType) Delete(dbx DBTX) error {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	var count int
+	if err := dbx.GetContext(ctx, &count, `
+		SELECT COUNT(*) FROM invoice_items WHERE fee_type_id = $1
+	`, f.ID); err != nil {
+		return err
+	}
+	if count > 0 {
+		return ErrFeeTypeInUse
+	}
+
+	if _, err := dbx.ExecContext(ctx, `DELETE FROM fee_class_amounts WHERE fee_type_id = $1`, f.ID); err != nil {
+		return err
+	}
+	_, err := dbx.ExecContext(ctx, `DELETE FROM fee_types WHERE id = $1 AND school_id = $2`, f.ID, f.SchoolID)
 	return err
 }
 

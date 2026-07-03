@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -13,6 +14,8 @@ import (
 	"github.com/school-invoice/backend/internal/dto"
 	"github.com/school-invoice/backend/internal/middleware"
 	"github.com/school-invoice/backend/internal/models"
+	"github.com/school-invoice/backend/lib/mail"
+	pdflib "github.com/school-invoice/backend/lib/pdf"
 	"github.com/shopspring/decimal"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -459,12 +462,25 @@ func (h *Handler) UpdateTerm(c *gin.Context) {
 
 func (h *Handler) SetCurrentTerm(c *gin.Context) {
 	req := c.MustGet(middleware.ReqBodySetCurrentTerm).(dto.SetCurrentTermRequest)
+
+	if req.IsCurrent {
+		if err := models.ClearCurrentTerm(h.dbx, req.SchoolID); err != nil {
+			h.logger.
+				WithError(err).
+				WithField("school_id", req.SchoolID).
+				Error("Failed to clear current term")
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to set current term"})
+			return
+		}
+	}
+
+	isCurrent := req.IsCurrent
 	term := models.Term{
 		BaseModel: models.BaseModel{
 			ID: req.TermID,
 		},
 		SchoolID:  req.SchoolID,
-		IsCurrent: &req.IsCurrent,
+		IsCurrent: &isCurrent,
 	}
 	if err := term.Update(h.dbx); err != nil {
 		var pgErr *pgconn.PgError
@@ -481,6 +497,18 @@ func (h *Handler) SetCurrentTerm(c *gin.Context) {
 			Error("Failed to set current term")
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to set current term"})
 		return
+	}
+
+	terms, err := (&models.Term{SchoolID: req.SchoolID}).List(h.dbx)
+	if err != nil {
+		c.JSON(http.StatusOK, term)
+		return
+	}
+	for _, t := range terms {
+		if t.ID == req.TermID {
+			c.JSON(http.StatusOK, t)
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, term)
@@ -1211,6 +1239,17 @@ func (h *Handler) CreateFeeType(c *gin.Context) {
 		return
 	}
 
+	exists, err := models.FeeCategoryExists(h.dbx, schoolID, string(req.Category))
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to validate fee category")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to validate fee category"})
+		return
+	}
+	if !exists {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Invalid fee category"})
+		return
+	}
+
 	feeType := models.FeeType{
 		BaseModel:     models.NewBaseModel(),
 		SchoolID:      schoolID,
@@ -1266,6 +1305,11 @@ func (h *Handler) UpdateFeeType(c *gin.Context) {
 		feeType.DefaultAmount = decimal.NewFromFloat(*req.DefaultAmount)
 	}
 	if req.Category != nil {
+		exists, err := models.FeeCategoryExists(h.dbx, schoolID, string(*req.Category))
+		if err != nil || !exists {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Invalid fee category"})
+			return
+		}
 		feeType.Category = *req.Category
 	}
 	if req.Frequency != nil {
@@ -1360,6 +1404,112 @@ func (h *Handler) SetFeeTypeAmounts(c *gin.Context) {
 	h.GetFeeTypeAmounts(c)
 }
 
+func (h *Handler) DeleteFeeType(c *gin.Context) {
+	schoolID := middleware.GetSchoolID(c)
+	feeTypeID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid fee type id"})
+		return
+	}
+
+	feeType := models.FeeType{BaseModel: models.BaseModel{ID: feeTypeID}, SchoolID: schoolID}
+	if err := feeType.Get(h.dbx, schoolID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Fee type not found"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to get fee type")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get fee type"})
+		return
+	}
+
+	if err := feeType.Delete(h.dbx); err != nil {
+		if errors.Is(err, models.ErrFeeTypeInUse) {
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Fee type is used on invoices and cannot be deleted"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to delete fee type")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to delete fee type"})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Fee type deleted"})
+}
+
+func (h *Handler) ListFeeCategories(c *gin.Context) {
+	schoolID := middleware.GetSchoolID(c)
+	categories, err := models.ListFeeCategories(h.dbx, schoolID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to list fee categories")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to list fee categories"})
+		return
+	}
+	c.JSON(http.StatusOK, categories)
+}
+
+func (h *Handler) CreateFeeCategory(c *gin.Context) {
+	schoolID := middleware.GetSchoolID(c)
+	var req models.CreateFeeCategoryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	code := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(req.Code), " ", "_"))
+	fc := models.FeeCategoryRecord{
+		BaseModel: models.NewBaseModel(),
+		SchoolID:  schoolID,
+		Name:      strings.TrimSpace(req.Name),
+		Code:      code,
+		IsActive:  true,
+	}
+	if err := fc.Create(h.dbx); err != nil {
+		h.logger.WithError(err).Error("Failed to create fee category")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create fee category"})
+		return
+	}
+	c.JSON(http.StatusCreated, fc)
+}
+
+func (h *Handler) DeleteFeeCategory(c *gin.Context) {
+	schoolID := middleware.GetSchoolID(c)
+	categoryID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid category id"})
+		return
+	}
+
+	categories, err := models.ListFeeCategories(h.dbx, schoolID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to list fee categories"})
+		return
+	}
+
+	var target *models.FeeCategoryRecord
+	for i := range categories {
+		if categories[i].ID == categoryID {
+			target = &categories[i]
+			break
+		}
+	}
+	if target == nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Fee category not found"})
+		return
+	}
+
+	if err := target.Delete(h.dbx, schoolID); err != nil {
+		if errors.Is(err, models.ErrFeeCategoryInUse) {
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Category is used by fee types and cannot be deleted"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to delete fee category")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to delete fee category"})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Fee category deleted"})
+}
+
 // Invoice handlers
 func (h *Handler) ListInvoices(c *gin.Context) {
 	schoolID := middleware.GetSchoolID(c)
@@ -1397,9 +1547,24 @@ func (h *Handler) ListInvoices(c *gin.Context) {
 	}
 
 	resp := make([]models.InvoiceResponse, 0, len(invoices))
+	invoiceIDs := make([]uuid.UUID, 0, len(invoices))
 	for i := range invoices {
 		resp = append(resp, invoices[i].ToResponse())
+		invoiceIDs = append(invoiceIDs, invoices[i].ID)
 	}
+
+	if len(invoiceIDs) > 0 {
+		lastSent, err := models.GetLastSentAtByInvoices(h.dbx, invoiceIDs)
+		if err == nil {
+			for i := range resp {
+				if t, ok := lastSent[resp[i].ID]; ok {
+					s := t.Format(time.RFC3339)
+					resp[i].LastSentAt = &s
+				}
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, models.NewPaginatedResponse(resp, filters.Page, filters.Limit, total))
 }
 
@@ -1407,30 +1572,60 @@ func (h *Handler) CreateInvoice(c *gin.Context) {
 	schoolID := middleware.GetSchoolID(c)
 	var req models.CreateInvoiceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		h.logger.
+			WithError(err).
+			WithField("school_id", schoolID).
+			Error("Failed to bind JSON for create invoice")
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error:   "validation_error",
+			Message: err.Error(),
+		})
 		return
 	}
 
 	invoice, items, err := models.BuildInvoiceFromRequest(h.dbx, schoolID, req)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Student has no active enrollment"})
+			h.logger.
+				WithError(err).
+				WithField("school_id", schoolID).
+				WithField("student_id", req.StudentID).
+				WithField("fee_type_ids", req.FeeTypeIDs).
+				Error("Student has no active enrollment for invoice")
+			c.JSON(http.StatusBadRequest, models.ErrorResponse{
+				Error:   "no_active_enrollment",
+				Message: "Student has no active enrollment in the current term",
+			})
 			return
 		}
-		h.logger.WithError(err).Error("Failed to build invoice")
+		h.logger.
+			WithError(err).
+			WithField("school_id", schoolID).
+			WithField("student_id", req.StudentID).
+			WithField("fee_type_ids", req.FeeTypeIDs).
+			Error("Failed to build invoice")
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to build invoice"})
 		return
 	}
 
 	if err := models.CreateInvoiceWithItems(h.dbx, invoice, items); err != nil {
-		h.logger.WithError(err).Error("Failed to create invoice")
+		h.logger.
+			WithError(err).
+			WithField("school_id", schoolID).
+			WithField("student_id", req.StudentID).
+			WithField("invoice_no", invoice.InvoiceNo).
+			Error("Failed to create invoice")
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create invoice"})
 		return
 	}
 
 	resp, err := models.GetInvoiceWithItems(h.dbx, schoolID, invoice.ID)
 	if err != nil {
-		h.logger.WithError(err).Error("Failed to get created invoice")
+		h.logger.
+			WithError(err).
+			WithField("school_id", schoolID).
+			WithField("invoice_id", invoice.ID).
+			Error("Failed to get created invoice")
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get created invoice"})
 		return
 	}
@@ -1442,7 +1637,14 @@ func (h *Handler) BulkCreateInvoices(c *gin.Context) {
 	schoolID := middleware.GetSchoolID(c)
 	var req models.BulkCreateInvoiceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		h.logger.
+			WithError(err).
+			WithField("school_id", schoolID).
+			Error("Failed to bind JSON for bulk create invoices")
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error:   "validation_error",
+			Message: err.Error(),
+		})
 		return
 	}
 
@@ -1490,7 +1692,7 @@ func (h *Handler) GetInvoice(c *gin.Context) {
 		return
 	}
 
-	resp, err := models.GetInvoiceWithItems(h.dbx, schoolID, invoiceID)
+	resp, err := models.GetInvoiceDetail(h.dbx, schoolID, invoiceID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Invoice not found"})
@@ -1504,11 +1706,106 @@ func (h *Handler) GetInvoice(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+func (h *Handler) sendInvoiceEmail(c *gin.Context, invoiceID uuid.UUID, sendType models.InvoiceSendType, recipientEmail string) {
+	schoolID := middleware.GetSchoolID(c)
+	userID := middleware.GetUserID(c)
+
+	ctx, err := models.GetInvoicePDFContext(h.dbx, schoolID, invoiceID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			h.logger.WithError(err).
+				WithField("school_id", schoolID).
+				WithField("invoice_id", invoiceID).
+				Error("Invoice not found")
+			c.JSON(http.StatusNotFound, models.ErrorResponse{
+				Error:   "invoice_not_found",
+				Message: "Invoice not found",
+			})
+			return
+		}
+		h.logger.WithError(err).
+			WithField("school_id", schoolID).
+			WithField("invoice_id", invoiceID).
+			Error("Failed to load invoice for sending")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Error:   "database_error",
+			Message: "Failed to load invoice",
+		})
+		return
+	}
+
+	sendTo := strings.TrimSpace(recipientEmail)
+	if sendTo == "" {
+		sendTo = strings.TrimSpace(ctx.GuardianEmail)
+	}
+	if sendTo == "" {
+		h.logger.
+			WithField("school_id", schoolID).
+			WithField("invoice_id", invoiceID).
+			Error("No recipient email for invoice send")
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error:   "no_recipient_email",
+			Message: "Provide an email address or add an email to the student's guardian.",
+		})
+		return
+	}
+
+	pdfData := pdflib.FromInvoiceContext(ctx)
+	pdfBytes, err := pdflib.GenerateInvoicePDF(pdfData)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to generate invoice PDF")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to generate invoice PDF"})
+		return
+	}
+
+	isReminder := sendType == models.InvoiceSendTypeReminder
+	if err := mail.SendInvoiceEmail(sendTo, ctx.School.Name, ctx.Invoice.InvoiceNo, ctx.StudentName, pdfBytes, isReminder); err != nil {
+		h.logger.WithError(err).Error("Failed to send invoice email")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to send invoice email", Message: err.Error()})
+		return
+	}
+
+	sendLog := models.InvoiceSendLog{
+		BaseModel: models.NewBaseModel(),
+		SchoolID:  schoolID,
+		InvoiceID: invoiceID,
+		SentTo:    sendTo,
+		SendType:  sendType,
+		SentBy:    &userID,
+	}
+	if err := sendLog.Create(h.dbx); err != nil {
+		h.logger.WithError(err).Warn("Invoice sent but failed to record send log")
+	}
+
+	resp, err := models.GetInvoiceDetail(h.dbx, schoolID, invoiceID)
+	if err != nil {
+		c.JSON(http.StatusOK, models.SuccessResponse{Message: "Invoice sent successfully"})
+		return
+	}
+
+	msg := "Invoice sent successfully"
+	if isReminder {
+		msg = "Invoice reminder sent successfully"
+	}
+	c.JSON(http.StatusOK, models.SuccessResponse{Message: msg, Data: resp})
+}
+
 func (h *Handler) GetPublicInvoice(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Get public invoice - to be implemented"})
 }
 
 func (h *Handler) SendInvoice(c *gin.Context) {
+	invoiceID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid invoice id"})
+		return
+	}
+	var req models.SendInvoiceRequest
+	_ = c.ShouldBindJSON(&req)
+	h.sendInvoiceEmail(c, invoiceID, models.InvoiceSendTypeInitial, req.Email)
+}
+
+func (h *Handler) UpdateInvoiceStatus(c *gin.Context) {
 	schoolID := middleware.GetSchoolID(c)
 	invoiceID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -1516,20 +1813,81 @@ func (h *Handler) SendInvoice(c *gin.Context) {
 		return
 	}
 
-	resp, err := models.GetInvoiceWithItems(h.dbx, schoolID, invoiceID)
-	if err != nil {
+	var req models.UpdateInvoiceStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.logger.WithError(err).Error("Failed to bind JSON")
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{
+			Error:   "validation_error",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	invoice := models.Invoice{BaseModel: models.BaseModel{ID: invoiceID}, SchoolID: schoolID}
+	if err := invoice.Get(h.dbx, schoolID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Invoice not found"})
 			return
 		}
-		h.logger.WithError(err).Error("Failed to get invoice for sending")
+		h.logger.WithError(err).Error("Failed to get invoice")
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get invoice"})
 		return
 	}
 
-	// TODO: integrate Termii SMS to notify guardians
-	h.logger.WithField("invoice_id", invoiceID).Info("Invoice send requested")
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Invoice send queued", Data: resp})
+	invoice.Status = req.Status
+	if err := invoice.UpdateStatus(h.dbx); err != nil {
+		h.logger.WithError(err).
+			WithField("school_id", schoolID).
+			WithField("invoice_id", invoiceID).
+			Error("Failed to update invoice status")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update invoice status"})
+		return
+	}
+
+	resp, err := models.GetInvoiceDetail(h.dbx, schoolID, invoiceID)
+	if err != nil {
+		c.JSON(http.StatusOK, models.SuccessResponse{Message: "Invoice status updated"})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) DeleteInvoice(c *gin.Context) {
+	schoolID := middleware.GetSchoolID(c)
+	invoiceID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid invoice id"})
+		return
+	}
+
+	invoice := models.Invoice{BaseModel: models.BaseModel{ID: invoiceID}, SchoolID: schoolID}
+	if err := invoice.Get(h.dbx, schoolID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Invoice not found"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to get invoice")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get invoice"})
+		return
+	}
+
+	if err := invoice.Delete(h.dbx); err != nil {
+		if errors.Is(err, models.ErrInvoiceHasPayments) {
+			c.JSON(http.StatusConflict, models.ErrorResponse{
+				Error:   "invoice_has_payments",
+				Message: "Cannot delete an invoice that has payment records",
+			})
+			return
+		}
+		h.logger.WithError(err).
+			WithField("school_id", schoolID).
+			WithField("invoice_id", invoiceID).
+			Error("Failed to delete invoice")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to delete invoice"})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Invoice deleted"})
 }
 
 func (h *Handler) GrantGrace(c *gin.Context) {
@@ -1581,27 +1939,14 @@ func (h *Handler) GrantGrace(c *gin.Context) {
 }
 
 func (h *Handler) SendReminder(c *gin.Context) {
-	schoolID := middleware.GetSchoolID(c)
 	invoiceID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid invoice id"})
 		return
 	}
-
-	resp, err := models.GetInvoiceWithItems(h.dbx, schoolID, invoiceID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Invoice not found"})
-			return
-		}
-		h.logger.WithError(err).Error("Failed to get invoice for reminder")
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get invoice"})
-		return
-	}
-
-	// TODO: integrate Termii SMS reminder
-	h.logger.WithField("invoice_id", invoiceID).Info("Invoice reminder requested")
-	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Invoice reminder queued", Data: resp})
+	var req models.SendInvoiceRequest
+	_ = c.ShouldBindJSON(&req)
+	h.sendInvoiceEmail(c, invoiceID, models.InvoiceSendTypeReminder, req.Email)
 }
 
 // Payment handlers

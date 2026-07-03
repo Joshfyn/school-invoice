@@ -3,6 +3,7 @@ module github.com/school-invoice/backend
 go 1.23.0
 
 require (
+	github.com/boombuler/barcode v1.1.0
 	github.com/gin-gonic/gin v1.9.1
 	github.com/go-playground/validator/v10 v10.14.0
 	github.com/golang-jwt/jwt/v5 v5.2.0
@@ -10,6 +11,7 @@ require (
 	github.com/jackc/pgx/v5 v5.5.1
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/joho/godotenv v1.5.1
+	github.com/jung-kurt/gofpdf/v2 v2.17.3
 	github.com/nyaruka/phonenumbers v1.6.10
 	github.com/redis/go-redis/v9 v9.4.0
 	github.com/shopspring/decimal v1.3.1

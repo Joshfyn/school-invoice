@@ -2,10 +2,12 @@ package mail
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 
 	"github.com/school-invoice/backend/lib"
+	pdflib "github.com/school-invoice/backend/lib/pdf"
 	"gopkg.in/gomail.v2"
 )
 
@@ -56,17 +58,71 @@ func SendResetPasswordEmail(recipientEmail, jwtToken string) error {
 	msg.SetBody("text/html", htmlBody)
 
 	// get the smtp pass from the environment variable
-	smtpPass := os.Getenv("SMTP_PASS")
-	smtpUser := os.Getenv("SMTP_USER")
-	if smtpPass == "" || smtpUser == "" {
-		return fmt.Errorf("SMTP_PASS or SMTP_USER is not set %s", smtpUser)
-	}
-
-	dial := gomail.NewDialer(smtpHost, smtpPort, smtpUser, smtpPass)
-	if err := dial.DialAndSend(msg); err != nil {
+	if err := dialAndSend(msg); err != nil {
 		return fmt.Errorf("failed to send confirmation email: %w", err)
 	}
 
 	log.Printf("Verification email successfully dispatched to %s", recipientEmail)
+	return nil
+}
+
+// SendInvoiceEmail sends an invoice PDF to a guardian.
+func SendInvoiceEmail(recipientEmail, schoolName, invoiceNo, studentName string, pdfBytes []byte, isReminder bool) error {
+	if recipientEmail == "" {
+		return fmt.Errorf("recipient email is required")
+	}
+
+	subject := fmt.Sprintf("Invoice %s from %s", invoiceNo, schoolName)
+	if isReminder {
+		subject = fmt.Sprintf("Reminder: Invoice %s from %s", invoiceNo, schoolName)
+	}
+
+	msg := gomail.NewMessage()
+	msg.SetHeader("From", fromAddress())
+	msg.SetHeader("To", recipientEmail)
+	msg.SetHeader("Subject", subject)
+
+	body := fmt.Sprintf(`
+		<html><body style="font-family: Arial, sans-serif; color: #333;">
+			<p>Dear Parent/Guardian,</p>
+			<p>Please find attached the invoice <strong>%s</strong> for <strong>%s</strong> from <strong>%s</strong>.</p>
+			<p>Payment is due by the date shown on the invoice. Please quote the reference number when making payment.</p>
+			<p style="font-size: 12px; color: #888;">This email was sent via %s.</p>
+		</body></html>
+	`, invoiceNo, studentName, schoolName, providerName())
+
+	msg.SetBody("text/html", body)
+	msg.Attach(pdflib.Filename(invoiceNo), gomail.SetCopyFunc(func(w io.Writer) error {
+		_, err := w.Write(pdfBytes)
+		return err
+	}))
+
+	return dialAndSend(msg)
+}
+
+func fromAddress() string {
+	if user := os.Getenv("SMTP_USER"); user != "" {
+		return user
+	}
+	return "no-reply@schoolinvoice.app"
+}
+
+func providerName() string {
+	if v := os.Getenv("SERVICE_PROVIDER_NAME"); v != "" {
+		return v
+	}
+	return "School Invoice"
+}
+
+func dialAndSend(msg *gomail.Message) error {
+	smtpPass := os.Getenv("SMTP_PASS")
+	smtpUser := os.Getenv("SMTP_USER")
+	if smtpPass == "" || smtpUser == "" {
+		return fmt.Errorf("SMTP_PASS or SMTP_USER is not set")
+	}
+	dial := gomail.NewDialer(smtpHost, smtpPort, smtpUser, smtpPass)
+	if err := dial.DialAndSend(msg); err != nil {
+		return fmt.Errorf("failed to send email: %w", err)
+	}
 	return nil
 }

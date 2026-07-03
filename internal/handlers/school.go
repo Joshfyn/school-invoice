@@ -23,14 +23,17 @@ func (h *Handler) GetSchoolProfile(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, dto.SchoolResponse{
-		ID:        school.ID,
-		Name:      school.Name,
-		Subdomain: school.Subdomain,
-		Phone:     school.Phone,
-		Email:     school.Email,
-		Address:   school.Address,
-		LogoURL:   school.LogoURL,
-		IsActive:  school.IsActive,
+		ID:                school.ID,
+		Name:              school.Name,
+		Subdomain:         school.Subdomain,
+		Phone:             school.Phone,
+		Email:             school.Email,
+		Address:           school.Address,
+		LogoURL:           school.LogoURL,
+		BankName:          school.BankName,
+		BankAccountName:   school.BankAccountName,
+		BankAccountNumber: school.BankAccountNumber,
+		IsActive:          school.IsActive,
 	})
 }
 
@@ -61,6 +64,15 @@ func (h *Handler) UpdateSchoolProfile(c *gin.Context) {
 	}
 	if req.LogoURL != nil {
 		school.LogoURL = req.LogoURL
+	}
+	if req.BankName != nil {
+		school.BankName = req.BankName
+	}
+	if req.BankAccountName != nil {
+		school.BankAccountName = req.BankAccountName
+	}
+	if req.BankAccountNumber != nil {
+		school.BankAccountNumber = req.BankAccountNumber
 	}
 	if err := school.Update(h.dbx); err != nil {
 		h.logger.

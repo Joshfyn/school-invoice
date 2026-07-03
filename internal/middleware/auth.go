@@ -244,3 +244,17 @@ func RequireAnyPermission(checks ...PermissionCheck) gin.HandlerFunc {
 		c.Abort()
 	}
 }
+
+func RequireSuperAdmin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !GetIsSuperAdmin(c) {
+			c.JSON(http.StatusForbidden, models.ErrorResponse{
+				Error:   "forbidden",
+				Message: "Only super admins can perform this action",
+			})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}

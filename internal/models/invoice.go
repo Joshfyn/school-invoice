@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 	"github.com/shopspring/decimal"
 )
 
@@ -63,6 +64,16 @@ type GrantGraceRequest struct {
 	Reason    string `json:"reason"`
 }
 
+// SendInvoiceRequest is the optional body for sending an invoice PDF by email.
+type SendInvoiceRequest struct {
+	Email string `json:"email,omitempty" binding:"omitempty,email"`
+}
+
+// UpdateInvoiceStatusRequest is the request body for changing invoice status (super admin).
+type UpdateInvoiceStatusRequest struct {
+	Status InvoiceStatus `json:"status" binding:"required,oneof=pending partial paid overdue cancelled"`
+}
+
 // InvoiceResponse is the response for invoice data
 type InvoiceResponse struct {
 	ID             uuid.UUID             `json:"id"`
@@ -76,8 +87,14 @@ type InvoiceResponse struct {
 	DueDate        string                `json:"due_date"`
 	GraceDate      *string               `json:"grace_date,omitempty"`
 	GraceGrantedBy *uuid.UUID            `json:"grace_granted_by,omitempty"`
-	//Student        *StudentResponse      `json:"student,omitempty"`
-	//Enrollment     *EnrollmentResponse   `json:"enrollment,omitempty"`
+	CreatedAt      string                `json:"created_at,omitempty"`
+	StudentName    string                `json:"student_name,omitempty"`
+	AdmissionNo    string                `json:"admission_no,omitempty"`
+	ClassName      string                `json:"class_name,omitempty"`
+	GuardianName   string                `json:"guardian_name,omitempty"`
+	GuardianEmail  string                `json:"guardian_email,omitempty"`
+	LastSentAt     *string               `json:"last_sent_at,omitempty"`
+	SendHistory    []InvoiceSendLogResponse `json:"send_history,omitempty"`
 	Items          []InvoiceItemResponse `json:"items,omitempty"`
 	Payments       []PaymentResponse     `json:"payments,omitempty"`
 }
@@ -103,7 +120,10 @@ func (i *Invoice) ToResponse() InvoiceResponse {
 		graceDate := i.GraceDate.Format("2006-01-02")
 		resp.GraceDate = &graceDate
 	}
-	
+	if !i.CreatedAt.IsZero() {
+		resp.CreatedAt = i.CreatedAt.Format(time.RFC3339)
+	}
+
 	return resp
 }
 
@@ -198,6 +218,37 @@ func (i *Invoice) Update(dbx DBTX) error {
 		    grace_date = $5, grace_granted_by = $6, updated_at = $7
 		WHERE id = $8 AND school_id = $9
 	`, i.TotalAmount, i.AmountPaid, i.Status, i.DueDate, i.GraceDate, i.GraceGrantedBy, time.Now().UTC(), i.ID, i.SchoolID)
+	return err
+}
+
+var ErrInvoiceHasPayments = errors.New("invoice has payments and cannot be deleted")
+
+func (i *Invoice) UpdateStatus(dbx DBTX) error {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	_, err := dbx.ExecContext(ctx, `
+		UPDATE invoices SET status = $1, updated_at = $2
+		WHERE id = $3 AND school_id = $4
+	`, i.Status, time.Now().UTC(), i.ID, i.SchoolID)
+	return err
+}
+
+func (i *Invoice) Delete(dbx DBTX) error {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	var paymentCount int
+	if err := dbx.GetContext(ctx, &paymentCount, `
+		SELECT COUNT(*) FROM payments WHERE invoice_id = $1
+	`, i.ID); err != nil {
+		return err
+	}
+	if paymentCount > 0 {
+		return ErrInvoiceHasPayments
+	}
+
+	_, err := dbx.ExecContext(ctx, `DELETE FROM invoices WHERE id = $1 AND school_id = $2`, i.ID, i.SchoolID)
 	return err
 }
 
@@ -414,6 +465,158 @@ func GetInvoiceWithItems(dbx DBTX, schoolID, invoiceID uuid.UUID) (*InvoiceRespo
 		resp.Items = append(resp.Items, item.ToResponse())
 	}
 	return &resp, nil
+}
+
+// InvoicePDFContext holds all data needed to render and email an invoice PDF.
+type InvoicePDFContext struct {
+	Invoice       Invoice
+	Items         []InvoiceItem
+	School        School
+	StudentName   string
+	AdmissionNo   string
+	ClassName     string
+	GuardianName  string
+	GuardianEmail string
+	GuardianAddr  string
+}
+
+func GetInvoicePDFContext(dbx DBTX, schoolID, invoiceID uuid.UUID) (*InvoicePDFContext, error) {
+	invoice := Invoice{BaseModel: BaseModel{ID: invoiceID}}
+	if err := invoice.Get(dbx, schoolID); err != nil {
+		return nil, err
+	}
+
+	items, err := ListInvoiceItems(dbx, invoiceID)
+	if err != nil {
+		return nil, err
+	}
+
+	school := School{BaseModel: BaseModel{ID: schoolID}}
+	if err := school.GetProfile(dbx); err != nil {
+		return nil, err
+	}
+
+	enrollment := StudentEnrollment{BaseModel: BaseModel{ID: invoice.EnrollmentID}}
+	if err := enrollment.Get(dbx, schoolID); err != nil {
+		return nil, err
+	}
+
+	student := Student{ID: enrollment.StudentID}
+	if err := student.Get(dbx); err != nil {
+		return nil, err
+	}
+
+	class := Class{BaseModel: BaseModel{ID: enrollment.ClassID}}
+	className := ""
+	if err := class.Get(dbx, schoolID); err == nil {
+		className = class.Name + " " + class.Section
+	}
+
+	admissionNo := ""
+	var admNo string
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+	_ = dbx.GetContext(ctx, &admNo, `
+		SELECT admission_no FROM student_admission
+		WHERE student_id = $1 AND school_id = $2 AND deleted_at IS NULL
+		LIMIT 1
+	`, enrollment.StudentID, schoolID)
+	admissionNo = admNo
+
+	guardians, err := ListStudentGuardians(dbx, enrollment.StudentID)
+	if err != nil {
+		return nil, err
+	}
+
+	guardianName, guardianEmail, guardianAddr := "", "", ""
+	for _, g := range guardians {
+		if g.Guardian == nil {
+			continue
+		}
+		if g.IsPrimary || g.ReceivesNotifications || guardianEmail == "" {
+			guardianName = g.Guardian.FirstName + " " + g.Guardian.LastName
+			guardianEmail = g.Guardian.Email
+			guardianAddr = g.Guardian.Address
+		}
+		if g.IsPrimary && g.Guardian.Email != "" {
+			break
+		}
+	}
+
+	return &InvoicePDFContext{
+		Invoice:       invoice,
+		Items:         items,
+		School:        school,
+		StudentName:   student.FirstName + " " + student.LastName,
+		AdmissionNo:   admissionNo,
+		ClassName:     className,
+		GuardianName:  guardianName,
+		GuardianEmail: guardianEmail,
+		GuardianAddr:  guardianAddr,
+	}, nil
+}
+
+func GetInvoiceDetail(dbx DBTX, schoolID, invoiceID uuid.UUID) (*InvoiceResponse, error) {
+	ctx, err := GetInvoicePDFContext(dbx, schoolID, invoiceID)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := ctx.Invoice.ToResponse()
+	resp.StudentName = ctx.StudentName
+	resp.AdmissionNo = ctx.AdmissionNo
+	resp.ClassName = ctx.ClassName
+	resp.GuardianName = ctx.GuardianName
+	resp.GuardianEmail = ctx.GuardianEmail
+
+	for _, item := range ctx.Items {
+		resp.Items = append(resp.Items, item.ToResponse())
+	}
+
+	history, err := ListInvoiceSendLogs(dbx, invoiceID)
+	if err != nil {
+		return nil, err
+	}
+	resp.SendHistory = history
+	if len(history) > 0 {
+		last := history[0].CreatedAt
+		resp.LastSentAt = &last
+	}
+
+	return &resp, nil
+}
+
+func GetLastSentAtByInvoices(dbx DBTX, invoiceIDs []uuid.UUID) (map[uuid.UUID]time.Time, error) {
+	if len(invoiceIDs) == 0 {
+		return map[uuid.UUID]time.Time{}, nil
+	}
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	query, args, err := sqlx.In(`
+		SELECT invoice_id, MAX(created_at) AS last_sent_at
+		FROM invoice_send_logs
+		WHERE invoice_id IN (?)
+		GROUP BY invoice_id
+	`, invoiceIDs)
+	if err != nil {
+		return nil, err
+	}
+	query = dbx.Rebind(query)
+
+	rows := []struct {
+		InvoiceID  uuid.UUID `db:"invoice_id"`
+		LastSentAt time.Time `db:"last_sent_at"`
+	}{}
+	if err := dbx.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, err
+	}
+
+	result := make(map[uuid.UUID]time.Time, len(rows))
+	for _, row := range rows {
+		result[row.InvoiceID] = row.LastSentAt
+	}
+	return result, nil
 }
 
 func (i *Invoice) GrantGrace(dbx DBTX, userID uuid.UUID, graceDate time.Time) error {
