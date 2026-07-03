@@ -3,7 +3,6 @@ package mail
 import (
 	"fmt"
 	"io"
-	"log"
 	"os"
 
 	"github.com/school-invoice/backend/lib"
@@ -29,7 +28,7 @@ func SendResetPasswordEmail(recipientEmail, jwtToken string) error {
 
 	// 2. BUILD THE EMAIL CONTENT
 	msg := gomail.NewMessage()
-	msg.SetHeader("From", "no-reply@yourdomain.com")
+	msg.SetHeader("From", fromAddress())
 	msg.SetHeader("To", recipientEmail)
 	msg.SetHeader("Subject", "Action Required: Reset Your Password")
 
@@ -61,8 +60,6 @@ func SendResetPasswordEmail(recipientEmail, jwtToken string) error {
 	if err := dialAndSend(msg); err != nil {
 		return fmt.Errorf("failed to send confirmation email: %w", err)
 	}
-
-	log.Printf("Verification email successfully dispatched to %s", recipientEmail)
 	return nil
 }
 
