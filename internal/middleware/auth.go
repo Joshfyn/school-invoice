@@ -127,7 +127,7 @@ func Auth(jwtSecret string, redis *database.Redis, dbx models.DBTX) gin.HandlerF
 		}
 		isSuperAdmin, _ := claims["is_super_admin"].(bool)
 
-		role, err := models.GetRole(dbx, schoolID, roleID)
+		role, err := models.GetRole(dbx, schoolID, roleID, true)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				c.JSON(http.StatusForbidden, models.ErrorResponse{

@@ -242,27 +242,35 @@ func (r *Role) Create(dbx DBTX) error {
 	return err
 }
 
-func ListRoles(dbx DBTX, schoolID uuid.UUID) ([]Role, error) {
+func ListRoles(dbx DBTX, schoolID uuid.UUID, includeSuperAdmin bool) ([]Role, error) {
 	ctx, cancel := GetDBContext(dbx)
 	defer cancel()
 
-	roles := []Role{}
-	err := dbx.SelectContext(ctx, &roles, `
+	query := `
 		SELECT id, school_id, name, description, permissions, is_super_admin, created_at, updated_at
-		FROM roles WHERE school_id = $1 AND deleted_at IS NULL
-	`, schoolID)
+		FROM roles WHERE school_id = $1 AND deleted_at IS NULL`
+	if !includeSuperAdmin {
+		query += ` AND is_super_admin = false`
+	}
+
+	roles := []Role{}
+	err := dbx.SelectContext(ctx, &roles, query, schoolID)
 	return roles, err
 }
 
-func GetRole(dbx DBTX, schoolID uuid.UUID, roleID uuid.UUID) (*Role, error) {
+func GetRole(dbx DBTX, schoolID uuid.UUID, roleID uuid.UUID, includeSuperAdmin bool) (*Role, error) {
 	ctx, cancel := GetDBContext(dbx)
 	defer cancel()
 
-	role := Role{}
-	err := dbx.GetContext(ctx, &role, `
+	query := `
 		SELECT id, school_id, name, description, permissions, is_super_admin, created_at, updated_at
-		FROM roles WHERE school_id = $1 AND id = $2 AND deleted_at IS NULL
-	`, schoolID, roleID)
+		FROM roles WHERE school_id = $1 AND id = $2 AND deleted_at IS NULL`
+	if !includeSuperAdmin {
+		query += ` AND is_super_admin = false`
+	}
+
+	role := Role{}
+	err := dbx.GetContext(ctx, &role, query, schoolID, roleID)
 	return &role, err
 }
 

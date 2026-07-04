@@ -39,7 +39,7 @@ func parseIntDefault(value string, defaultValue int) int {
 // Stub implementations for handlers
 func (h *Handler) ListRoles(c *gin.Context) {
 	schoolID := middleware.GetSchoolID(c)
-	roles, err := models.ListRoles(h.dbx, schoolID)
+	roles, err := models.ListRoles(h.dbx, schoolID, middleware.GetIsSuperAdmin(c))
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to get roles")
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get roles"})
@@ -76,8 +76,6 @@ func (h *Handler) CreateRole(c *gin.Context) {
 }
 
 func (h *Handler) GetRole(c *gin.Context) {
-	// TODO: If the role is super admin, return the role only if the schoolID is the same as the role's schoolID and own roleID
-	// TODO: If the role is not super admin, return only the requestor's role
 	schoolID := middleware.GetSchoolID(c)
 	roleID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -85,7 +83,7 @@ func (h *Handler) GetRole(c *gin.Context) {
 		return
 	}
 
-	role, err := models.GetRole(h.dbx, schoolID, roleID)
+	role, err := models.GetRole(h.dbx, schoolID, roleID, middleware.GetIsSuperAdmin(c))
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to get role")
 		respondWithError(c, http.StatusNotFound, "not_found", "role not found")
@@ -99,7 +97,7 @@ func (h *Handler) UpdateRole(c *gin.Context) {
 	schoolID := middleware.GetSchoolID(c)
 	req := c.MustGet(middleware.ReqBodyUpdateRole).(dto.UpdateRoleRequest)
 
-	role, err := models.GetRole(h.dbx, schoolID, req.RoleID)
+	role, err := models.GetRole(h.dbx, schoolID, req.RoleID, true)
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to get role for update")
 		respondWithError(c, http.StatusNotFound, "not_found", "role not found")
@@ -170,6 +168,7 @@ func (h *Handler) ListUsers(c *gin.Context) {
 func (h *Handler) CreateUser(c *gin.Context) {
 	req := c.MustGet(middleware.ReqBodyCreateUser).(dto.CreateUserRequest)
 	schoolID := middleware.GetSchoolID(c)
+	isSuperAdmin := middleware.GetIsSuperAdmin(c)
 
 	// verify if the email already exists
 	exists, err := (&models.User{Email: req.Email}).EmailExists(h.dbx)
@@ -184,7 +183,7 @@ func (h *Handler) CreateUser(c *gin.Context) {
 	}
 
 	// verify school id is the same as the school id in the role
-	role, err := models.GetRole(h.dbx, schoolID, req.RoleID)
+	role, err := models.GetRole(h.dbx, schoolID, req.RoleID, true)
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to get role")
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get role"})
@@ -197,6 +196,11 @@ func (h *Handler) CreateUser(c *gin.Context) {
 			WithField("role_id", req.RoleID).
 			Error("School ID does not match role school ID")
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "School ID does not match role school ID"})
+		return
+	}
+	if !isSuperAdmin && role.IsSuperAdmin {
+		h.logger.WithError(err).Error("Only super admin can create super admin")
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Only super admin can create super admin"})
 		return
 	}
 
@@ -275,7 +279,7 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 func (h *Handler) UpdateUserRole(c *gin.Context) {
 	req := c.MustGet(middleware.ReqBodyUpdateUserRole).(dto.UpdateUserRoleRequest)
 	requestorSchoolID := middleware.GetSchoolID(c)
-	role, err := models.GetRole(h.dbx, requestorSchoolID, req.RoleID)
+	role, err := models.GetRole(h.dbx, requestorSchoolID, req.RoleID, true)
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to get role")
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get role"})
