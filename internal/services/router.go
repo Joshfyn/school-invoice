@@ -131,7 +131,10 @@ func (svc *EducationService) setupUserRoutes(protected *gin.RouterGroup, h *hand
 		users.POST("", middleware.RequirePermission("users", "create"), middleware.ValidateCreateUserRequest, h.CreateUser)
 		users.GET("/:id", middleware.ValidateGetSingleUserRequest, middleware.RequirePermission("users", "read"), h.GetSingleUser)
 		users.PUT("/:id", middleware.ValidateUpdateUserRequest, middleware.RequirePermission("users", "update"), h.UpdateUser)
-		users.PUT("/:id/role", middleware.ValidateUpdateUserRoleRequest, middleware.RequirePermission("roles", "manage"), h.UpdateUserRole)
+		users.PUT("/:id/role", middleware.ValidateUpdateUserRoleRequest, middleware.RequireAnyPermission(
+			middleware.PermissionCheck{Resource: "users", Action: "update"},
+			middleware.PermissionCheck{Resource: "roles", Action: "manage"},
+		), h.UpdateUserRole)
 		users.PUT("/:id/status", middleware.ValidateUpdateUserStatusRequest, middleware.RequirePermission("users", "update"), h.UpdateUserStatus)
 		//users.GET("/:id/class-access", middleware.RequirePermission("users", "read"), h.GetUserClassAccess)
 		//users.PUT("/:id/class-access", middleware.RequirePermission("classes", "manage"), h.SetUserClassAccess)
