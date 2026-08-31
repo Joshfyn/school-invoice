@@ -27,12 +27,13 @@ type Config struct {
 	PaystackPublicKey string
 
 	// Termii
-	TermiiAPIKey  string
+	TermiiAPIKey   string
 	TermiiSenderID string
 
 	// App URLs
-	AppURL string
-	APIURL string
+	AppURL            string
+	APIURL            string
+	GuardianPortalURL string
 }
 
 func Load() (*Config, error) {
@@ -54,6 +55,7 @@ func Load() (*Config, error) {
 		TermiiSenderID:    getEnv("TERMII_SENDER_ID", "SchoolInv"),
 		AppURL:            getEnv("APP_URL", "http://localhost:3000"),
 		APIURL:            getEnv("API_URL", "http://localhost:8080"),
+		GuardianPortalURL: getEnv("GUARDIAN_PORTAL_URL", "http://localhost:3001"),
 	}, nil
 }
 

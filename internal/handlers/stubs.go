@@ -21,9 +21,46 @@ import (
 )
 
 const (
-	ConstraintUniqueCurrentTerm = "idx_unique_current_term"
-	ErrorCodeUnique             = "23505"
+	ConstraintUniqueCurrentTerm         = "idx_unique_current_term"
+	ConstraintUniqueCurrentSession      = "idx_unique_current_session"
+	ConstraintUniqueStudentGuardian     = "idx_unique_student_guardian"
+	ConstraintUniqueStudentExclusiveRel = "idx_unique_student_exclusive_relationship"
+	ErrorCodeUnique                     = "23505"
 )
+
+func exclusiveRelationshipConflictMessage(relationship models.Relationship) string {
+	switch relationship {
+	case models.RelationshipMother:
+		return "Student already has a mother linked"
+	case models.RelationshipFather:
+		return "Student already has a father linked"
+	case models.RelationshipGuardian:
+		return "Student already has a guardian linked"
+	default:
+		return "Student already has this relationship linked"
+	}
+}
+
+func ensureExclusiveRelationshipAvailable(dbx models.DBTX, studentID uuid.UUID, relationship models.Relationship) (string, error) {
+	if !models.IsExclusiveRelationship(relationship) {
+		return "", nil
+	}
+	taken, err := models.StudentHasRelationship(dbx, studentID, relationship)
+	if err != nil {
+		return "", err
+	}
+	if taken {
+		return exclusiveRelationshipConflictMessage(relationship), nil
+	}
+	return "", nil
+}
+
+func studentGuardianUniqueConflictMessage(constraint string, relationship models.Relationship) string {
+	if constraint == ConstraintUniqueStudentExclusiveRel {
+		return exclusiveRelationshipConflictMessage(relationship)
+	}
+	return "Guardian already linked to this student"
+}
 
 func parseIntDefault(value string, defaultValue int) int {
 	if value == "" {
@@ -346,6 +383,16 @@ func (h *Handler) ListSessions(c *gin.Context) {
 func (h *Handler) CreateSession(c *gin.Context) {
 	req := c.MustGet(middleware.ReqBodyCreateSession).(dto.CreateSessionRequest)
 
+	if req.IsCurrent {
+		if err := models.ClearCurrentSession(h.dbx, req.SchoolID); err != nil {
+			h.logger.WithError(err).
+				WithField("school_id", req.SchoolID).
+				Error("Failed to clear current session")
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create session"})
+			return
+		}
+	}
+
 	session := models.AcademicSession{
 		BaseModel: models.NewBaseModel(),
 		SchoolID:  req.SchoolID,
@@ -355,6 +402,11 @@ func (h *Handler) CreateSession(c *gin.Context) {
 		IsCurrent: &req.IsCurrent,
 	}
 	if err := session.Create(h.dbx); err != nil {
+		if isUniqueCurrentSessionErr(err) {
+			h.logger.WithError(err).Error("Another session is already current for this school")
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Another session is already current for this school"})
+			return
+		}
 		h.logger.WithError(err).Error("Failed to create session")
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create session"})
 		return
@@ -371,10 +423,31 @@ func (h *Handler) UpdateSession(c *gin.Context) {
 		},
 		SchoolID:  req.SchoolID,
 		Name:      req.Name,
-		StartDate: &req.Start,
-		EndDate:   &req.End,
+		IsCurrent: req.IsCurrent,
 	}
+	if req.StartDate != "" {
+		session.StartDate = &req.Start
+	}
+	if req.EndDate != "" {
+		session.EndDate = &req.End
+	}
+
+	if req.IsCurrent != nil && *req.IsCurrent {
+		if err := models.ClearCurrentSession(h.dbx, req.SchoolID); err != nil {
+			h.logger.WithError(err).
+				WithField("school_id", req.SchoolID).
+				Error("Failed to clear current session")
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update session"})
+			return
+		}
+	}
+
 	if err := session.Update(h.dbx); err != nil {
+		if isUniqueCurrentSessionErr(err) {
+			h.logger.WithError(err).Error("Another session is already current for this school")
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Another session is already current for this school"})
+			return
+		}
 		h.logger.WithError(err).Error("Failed to update session")
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to update session"})
 		return
@@ -385,6 +458,17 @@ func (h *Handler) UpdateSession(c *gin.Context) {
 
 func (h *Handler) SetCurrentSession(c *gin.Context) {
 	req := c.MustGet(middleware.ReqBodySetCurrentSession).(dto.SetCurrentSessionRequest)
+
+	if req.IsCurrent {
+		if err := models.ClearCurrentSession(h.dbx, req.SchoolID); err != nil {
+			h.logger.WithError(err).
+				WithField("school_id", req.SchoolID).
+				Error("Failed to clear current session")
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to set current session"})
+			return
+		}
+	}
+
 	session := models.AcademicSession{
 		BaseModel: models.BaseModel{
 			ID: req.SessionID,
@@ -393,8 +477,7 @@ func (h *Handler) SetCurrentSession(c *gin.Context) {
 		IsCurrent: &req.IsCurrent,
 	}
 	if err := session.Update(h.dbx); err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_unique_current_session" {
+		if isUniqueCurrentSessionErr(err) {
 			h.logger.WithError(err).Error("Another session is already current for this school")
 			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Another session is already current for this school"})
 			return
@@ -404,7 +487,23 @@ func (h *Handler) SetCurrentSession(c *gin.Context) {
 		return
 	}
 
+	if !req.IsCurrent {
+		if err := models.ClearCurrentTermForSession(h.dbx, req.SchoolID, req.SessionID); err != nil {
+			h.logger.WithError(err).
+				WithField("school_id", req.SchoolID).
+				WithField("session_id", req.SessionID).
+				Error("Failed to clear the current term of the ended session")
+		}
+	}
+
 	c.JSON(http.StatusOK, session)
+}
+
+func isUniqueCurrentSessionErr(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) &&
+		pgErr.Code == ErrorCodeUnique &&
+		pgErr.ConstraintName == ConstraintUniqueCurrentSession
 }
 
 // Term handlers
@@ -704,6 +803,13 @@ func (h *Handler) BulkEnrollment(c *gin.Context) {
 	count, err := models.BulkEnrollStudents(h.dbx, schoolID, req)
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to bulk enroll students")
+		if err.Error() == "from_class_id is required when student_ids is empty" {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse{
+				Error:   "validation_error",
+				Message: err.Error(),
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to bulk enroll students"})
 		return
 	}
@@ -800,14 +906,38 @@ func (h *Handler) CreateGuardian(c *gin.Context) {
 	if req.Email != "" {
 		exists, err = (&models.Guardian{Email: req.Email}).EmailExists(h.dbx)
 		if err != nil {
-			h.logger.WithError(err).Error("Failed to check guardian existence")
+			h.logger.
+				WithError(err).
+				WithField("email", req.Email).
+				WithField("first_name", guardian.FirstName).
+				WithField("last_name", guardian.LastName).
+				Error("Failed to check guardian existence")
 			c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to check guardian existence"})
 			return
 		}
 		if exists {
+			h.logger.
+				WithField("email", req.Email).
+				WithField("first_name", guardian.FirstName).
+				WithField("last_name", guardian.LastName).
+				Error("Guardian with this email already exists")
 			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Guardian with this email already exists"})
 			return
 		}
+	}
+
+	relationship := models.Relationship(req.Relationship)
+	if msg, err := ensureExclusiveRelationshipAvailable(h.dbx, req.StudentID, relationship); err != nil {
+		h.logger.WithError(err).Error("Failed to check student relationship")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to check student relationship"})
+		return
+	} else if msg != "" {
+		h.logger.
+			WithField("student_id", req.StudentID).
+			WithField("relationship", relationship).
+			Error("Student relationship already exists")
+		c.JSON(http.StatusConflict, models.ErrorResponse{Error: msg})
+		return
 	}
 
 	tx := h.dbx.MustBegin()
@@ -823,14 +953,14 @@ func (h *Handler) CreateGuardian(c *gin.Context) {
 		BaseModel:             models.NewBaseModel(),
 		StudentID:             req.StudentID,
 		GuardianID:            guardian.ID,
-		Relationship:          models.Relationship(req.Relationship),
+		Relationship:          relationship,
 		IsPrimary:             req.IsPrimary,
 		ReceivesNotifications: req.ReceivesNotifications,
 	}
 	if err := link.Create(tx); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == ErrorCodeUnique {
-			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Guardian already linked to this student"})
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: studentGuardianUniqueConflictMessage(pgErr.ConstraintName, relationship)})
 			return
 		}
 		h.logger.WithError(err).Error("Failed to link guardian to student")
@@ -980,11 +1110,23 @@ func (h *Handler) CreateStudent(c *gin.Context) {
 	// check if the student NIN already exists
 	exists, err := student.NINExists(h.dbx)
 	if err != nil {
-		h.logger.WithError(err).Error("Failed to check student existence")
+		h.logger.
+			WithError(err).
+			WithField("first_name", req.FirstName).
+			WithField("middle_name", req.MiddleName).
+			WithField("last_name", req.LastName).
+			WithField("nin", req.NIN).
+			Error("Failed to check student existence")
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to check student existence"})
 		return
 	}
 	if exists {
+		h.logger.
+			WithField("first_name", req.FirstName).
+			WithField("middle_name", req.MiddleName).
+			WithField("last_name", req.LastName).
+			WithField("nin", req.NIN).
+			Error("Student NIN already exists")
 		c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Student NIN already exists"})
 		return
 	}
@@ -1010,7 +1152,14 @@ func (h *Handler) CreateStudent(c *gin.Context) {
 		AdmissionDate: time.Now().UTC(),
 	}
 	if err := admission.Create(tx); err != nil {
-		h.logger.WithError(err).WithField("student_id", student.ID).Error("Failed to create student admission")
+		h.logger.
+			WithError(err).
+			WithField("student_id", student.ID).
+			WithField("first_name", student.FirstName).
+			WithField("middle_name", student.MiddleName).
+			WithField("last_name", student.LastName).
+			WithField("nin", student.NIN).
+			Error("Failed to create student admission")
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to create student admission"})
 		return
 	}
@@ -1182,6 +1331,7 @@ func (h *Handler) GetStudentGuardians(c *gin.Context) {
 }
 
 func (h *Handler) LinkStudentGuardian(c *gin.Context) {
+	schoolID := middleware.GetSchoolID(c)
 	studentID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid student id"})
@@ -1191,6 +1341,37 @@ func (h *Handler) LinkStudentGuardian(c *gin.Context) {
 	var req models.LinkGuardianRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	admitted, err := models.StudentAdmittedToSchool(h.dbx, schoolID, studentID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to verify student")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to verify student"})
+		return
+	}
+	if !admitted {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Student is not enrolled in this school"})
+		return
+	}
+
+	guardian := models.Guardian{ID: req.GuardianID}
+	if err := guardian.Get(h.dbx); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Guardian not found"})
+			return
+		}
+		h.logger.WithError(err).Error("Failed to get guardian")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to get guardian"})
+		return
+	}
+
+	if msg, err := ensureExclusiveRelationshipAvailable(h.dbx, studentID, req.Relationship); err != nil {
+		h.logger.WithError(err).Error("Failed to check student relationship")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to check student relationship"})
+		return
+	} else if msg != "" {
+		c.JSON(http.StatusConflict, models.ErrorResponse{Error: msg})
 		return
 	}
 
@@ -1205,7 +1386,7 @@ func (h *Handler) LinkStudentGuardian(c *gin.Context) {
 	if err := link.Create(h.dbx); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == ErrorCodeUnique {
-			c.JSON(http.StatusConflict, models.ErrorResponse{Error: "Guardian already linked to student"})
+			c.JSON(http.StatusConflict, models.ErrorResponse{Error: studentGuardianUniqueConflictMessage(pgErr.ConstraintName, req.Relationship)})
 			return
 		}
 		h.logger.WithError(err).Error("Failed to link student guardian")
@@ -1214,6 +1395,44 @@ func (h *Handler) LinkStudentGuardian(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, link)
+}
+
+func (h *Handler) UnlinkStudentGuardian(c *gin.Context) {
+	schoolID := middleware.GetSchoolID(c)
+	studentID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid student id"})
+		return
+	}
+	guardianID, err := uuid.Parse(c.Param("guardianId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "invalid guardian id"})
+		return
+	}
+
+	admitted, err := models.StudentAdmittedToSchool(h.dbx, schoolID, studentID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to verify student")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to verify student"})
+		return
+	}
+	if !admitted {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse{Error: "Student is not enrolled in this school"})
+		return
+	}
+
+	link := models.StudentGuardian{StudentID: studentID, GuardianID: guardianID}
+	deleted, err := link.Delete(h.dbx)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to unlink student guardian")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to unlink student guardian"})
+		return
+	}
+	if !deleted {
+		c.JSON(http.StatusNotFound, models.ErrorResponse{Error: "Guardian link not found"})
+		return
+	}
+	c.JSON(http.StatusOK, models.SuccessResponse{Message: "Guardian unlinked from student"})
 }
 
 // Fee type handlers
@@ -1762,8 +1981,18 @@ func (h *Handler) sendInvoiceEmail(c *gin.Context, invoiceID uuid.UUID, sendType
 		return
 	}
 
+	portalLink, err := h.createGuardianPortalLink(schoolID, ctx.GuardianID, invoiceID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to create guardian portal link")
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse{
+			Error:   "portal_link_error",
+			Message: "Failed to create the secure guardian portal link",
+		})
+		return
+	}
+
 	isReminder := sendType == models.InvoiceSendTypeReminder
-	if err := mail.SendInvoiceEmail(sendTo, ctx.School.Name, ctx.Invoice.InvoiceNo, ctx.StudentName, pdfBytes, isReminder); err != nil {
+	if err := mail.SendInvoiceEmail(sendTo, ctx.School.Name, ctx.Invoice.InvoiceNo, ctx.StudentName, portalLink, pdfBytes, isReminder); err != nil {
 		h.logger.WithError(err).Error("Failed to send invoice email")
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse{Error: "Failed to send invoice email", Message: err.Error()})
 		return

@@ -421,6 +421,31 @@ func (ts *TestSuiteData) TestStudentEndpoints() {
 
 	w = ts.doRequest(router, http.MethodGet, fmt.Sprintf("/api/v1/students/%s/guardians", ts.studentID), nil)
 	ts.Equal(http.StatusOK, w.Code)
+
+	// One father per student
+	secondGuardian := ts.createGuardian()
+	dupFather := map[string]interface{}{
+		"guardian_id":            secondGuardian,
+		"relationship":           "father",
+		"is_primary":             false,
+		"receives_notifications": true,
+	}
+	w = ts.doRequest(router, http.MethodPost, fmt.Sprintf("/api/v1/students/%s/guardians", ts.studentID), dupFather)
+	ts.Equal(http.StatusConflict, w.Code)
+
+	// Same guardian can be linked to another student
+	siblingID := ts.createStudent()
+	siblingLink := map[string]interface{}{
+		"guardian_id":            ts.guardianID,
+		"relationship":           "father",
+		"is_primary":             true,
+		"receives_notifications": true,
+	}
+	w = ts.doRequest(router, http.MethodPost, fmt.Sprintf("/api/v1/students/%s/guardians", siblingID), siblingLink)
+	ts.Equal(http.StatusCreated, w.Code)
+
+	w = ts.doRequest(router, http.MethodDelete, fmt.Sprintf("/api/v1/students/%s/guardians/%s", siblingID, ts.guardianID), nil)
+	ts.Equal(http.StatusOK, w.Code)
 }
 
 func (ts *TestSuiteData) TestFeeTypeEndpoints() {

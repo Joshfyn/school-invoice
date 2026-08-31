@@ -329,6 +329,26 @@ type StudentGuardianResponse struct {
 	Student  *Student  `json:"student,omitempty"`
 }
 
+// IsExclusiveRelationship reports whether a student may have only one of this role.
+func IsExclusiveRelationship(r Relationship) bool {
+	return r == RelationshipFather || r == RelationshipMother || r == RelationshipGuardian
+}
+
+// StudentHasRelationship reports whether the student already has the given relationship linked.
+func StudentHasRelationship(dbx DBTX, studentID uuid.UUID, relationship Relationship) (bool, error) {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	exists := false
+	err := dbx.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM student_guardians
+			WHERE student_id = $1 AND relationship = $2
+		)
+	`, studentID, relationship).Scan(&exists)
+	return exists, err
+}
+
 func (sg *StudentGuardian) Create(dbx DBTX) error {
 	ctx, cancel := GetDBContext(dbx)
 	defer cancel()
@@ -350,6 +370,25 @@ func (sg *StudentGuardian) Create(dbx DBTX) error {
 		return errors.New("student guardian link not created")
 	}
 	return rows.StructScan(sg)
+}
+
+// Delete removes the link between a student and guardian.
+func (sg *StudentGuardian) Delete(dbx DBTX) (bool, error) {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	result, err := dbx.ExecContext(ctx, `
+		DELETE FROM student_guardians
+		WHERE student_id = $1 AND guardian_id = $2
+	`, sg.StudentID, sg.GuardianID)
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
 func ListStudentGuardians(dbx DBTX, studentID uuid.UUID) ([]StudentGuardianResponse, error) {

@@ -102,7 +102,7 @@ type InvoiceResponse struct {
 func (i *Invoice) ToResponse() InvoiceResponse {
 	totalAmount, _ := i.TotalAmount.Float64()
 	amountPaid, _ := i.AmountPaid.Float64()
-	
+
 	resp := InvoiceResponse{
 		ID:             i.ID,
 		SchoolID:       i.SchoolID,
@@ -115,7 +115,7 @@ func (i *Invoice) ToResponse() InvoiceResponse {
 		DueDate:        i.DueDate.Format("2006-01-02"),
 		GraceGrantedBy: i.GraceGrantedBy,
 	}
-	
+
 	if i.GraceDate != nil {
 		graceDate := i.GraceDate.Format("2006-01-02")
 		resp.GraceDate = &graceDate
@@ -475,6 +475,7 @@ type InvoicePDFContext struct {
 	StudentName   string
 	AdmissionNo   string
 	ClassName     string
+	GuardianID    uuid.UUID
 	GuardianName  string
 	GuardianEmail string
 	GuardianAddr  string
@@ -528,12 +529,14 @@ func GetInvoicePDFContext(dbx DBTX, schoolID, invoiceID uuid.UUID) (*InvoicePDFC
 		return nil, err
 	}
 
+	guardianID := uuid.Nil
 	guardianName, guardianEmail, guardianAddr := "", "", ""
 	for _, g := range guardians {
 		if g.Guardian == nil {
 			continue
 		}
 		if g.IsPrimary || g.ReceivesNotifications || guardianEmail == "" {
+			guardianID = g.Guardian.ID
 			guardianName = g.Guardian.FirstName + " " + g.Guardian.LastName
 			guardianEmail = g.Guardian.Email
 			guardianAddr = g.Guardian.Address
@@ -550,6 +553,7 @@ func GetInvoicePDFContext(dbx DBTX, schoolID, invoiceID uuid.UUID) (*InvoicePDFC
 		StudentName:   student.FirstName + " " + student.LastName,
 		AdmissionNo:   admissionNo,
 		ClassName:     className,
+		GuardianID:    guardianID,
 		GuardianName:  guardianName,
 		GuardianEmail: guardianEmail,
 		GuardianAddr:  guardianAddr,

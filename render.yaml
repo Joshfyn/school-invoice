@@ -44,3 +44,6 @@ services:
         sync: false
       - key: API_URL
         sync: false
+      # Public URL of the deployed guardian portal, without a trailing slash.
+      - key: GUARDIAN_PORTAL_URL
+        sync: false

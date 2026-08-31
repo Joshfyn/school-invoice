@@ -100,6 +100,16 @@ func (svc *EducationService) setupPublicRoutes(api *gin.RouterGroup, h *handlers
 
 	// Payment webhook (Paystack)
 	api.POST("/payments/webhook", h.PaymentWebhook)
+
+	// Guardian portal (access is granted by the signed token in invoice/reminder emails)
+	portal := api.Group("/portal/access/:token")
+	{
+		portal.GET("", h.GetPortalSession)
+		portal.GET("/invoices/:id", h.GetPortalInvoice)
+		portal.GET("/invoices/:id/pdf", h.GetPortalInvoicePDF)
+		portal.POST("/invoices/:id/pay", h.InitializePortalPayment)
+		portal.POST("/invoices/:id/grace-request", h.CreatePortalGraceRequest)
+	}
 }
 
 // setupSchoolRoutes configures school profile routes
@@ -223,6 +233,7 @@ func (svc *EducationService) setupStudentRoutes(protected *gin.RouterGroup, h *h
 		students.GET("/:id/enrollments", middleware.RequirePermission("students", "read"), h.GetStudentEnrollments)
 		students.GET("/:id/guardians", middleware.RequirePermission("guardians", "read"), h.GetStudentGuardians)
 		students.POST("/:id/guardians", middleware.RequirePermission("guardians", "create"), h.LinkStudentGuardian)
+		students.DELETE("/:id/guardians/:guardianId", middleware.RequirePermission("guardians", "update"), h.UnlinkStudentGuardian)
 	}
 }
 

@@ -57,9 +57,10 @@ type CreateEnrollmentRequest struct {
 	TermID    uuid.UUID `json:"term_id" binding:"required"`
 }
 
-// BulkEnrollmentRequest is the request body for bulk enrollment (e.g., promoting a class)
+// BulkEnrollmentRequest is the request body for bulk enrollment (e.g., promoting a class).
+// FromClassID is required when StudentIDs is empty (move everyone in that class).
 type BulkEnrollmentRequest struct {
-	FromClassID uuid.UUID   `json:"from_class_id" binding:"required"`
+	FromClassID uuid.UUID   `json:"from_class_id"`
 	ToClassID   uuid.UUID   `json:"to_class_id" binding:"required"`
 	TermID      uuid.UUID   `json:"term_id" binding:"required"`
 	StudentIDs  []uuid.UUID `json:"student_ids,omitempty"` // If empty, promote all students in from_class

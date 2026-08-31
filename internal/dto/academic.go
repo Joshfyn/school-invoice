@@ -23,6 +23,9 @@ type UpdateSessionRequest struct {
 	SchoolID  uuid.UUID `json:"-"`
 	StartDate string    `json:"start_date,omitempty"`
 	EndDate   string    `json:"end_date,omitempty"`
+	// IsCurrent is a pointer so an omitted field leaves the session's status untouched,
+	// while an explicit false ends the session.
+	IsCurrent *bool     `json:"is_current,omitempty"`
 	Start     time.Time `json:"-"`
 	End       time.Time `json:"-"`
 }

@@ -166,6 +166,9 @@ func BulkEnrollStudents(dbx DBTX, schoolID uuid.UUID, req BulkEnrollmentRequest)
 
 	studentIDs := req.StudentIDs
 	if len(studentIDs) == 0 {
+		if req.FromClassID == uuid.Nil {
+			return 0, errors.New("from_class_id is required when student_ids is empty")
+		}
 		err := dbx.SelectContext(ctx, &studentIDs, `
 			SELECT DISTINCT e.student_id
 			FROM student_enrollments e

@@ -272,6 +272,31 @@ func (t *Term) List(dbx DBTX) ([]Term, error) {
 	return terms, nil
 }
 
+// ClearCurrentSession unsets is_current on all sessions for a school (before marking a new current session).
+func ClearCurrentSession(dbx DBTX, schoolID uuid.UUID) error {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	_, err := dbx.ExecContext(ctx, `
+		UPDATE academic_sessions SET is_current = false, updated_at = $1
+		WHERE school_id = $2 AND is_current = true
+	`, time.Now().UTC(), schoolID)
+	return err
+}
+
+// ClearCurrentTermForSession unsets is_current on the terms of one session, so an ended
+// session never leaves a term active for billing.
+func ClearCurrentTermForSession(dbx DBTX, schoolID, sessionID uuid.UUID) error {
+	ctx, cancel := GetDBContext(dbx)
+	defer cancel()
+
+	_, err := dbx.ExecContext(ctx, `
+		UPDATE terms SET is_current = false, updated_at = $1
+		WHERE school_id = $2 AND session_id = $3 AND is_current = true
+	`, time.Now().UTC(), schoolID, sessionID)
+	return err
+}
+
 // ClearCurrentTerm unsets is_current on all terms for a school (before marking a new current term).
 func ClearCurrentTerm(dbx DBTX, schoolID uuid.UUID) error {
 	ctx, cancel := GetDBContext(dbx)
